@@ -4,7 +4,7 @@ const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'https://graph.facebook.com/v19.0';
+const BASE = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v19.0'}`;
 const TOKEN = () => process.env.META_TOKEN;
 const PHONE_ID = () => process.env.META_PHONE_NUMBER_ID;
 
@@ -12,7 +12,7 @@ const PHONE_ID = () => process.env.META_PHONE_NUMBER_ID;
 const mediaCache = new Map();
 
 async function req(method, endpoint, body) {
-  const res = await fetch(`${BASE}/${endpoint}`, {
+  const res = await fetch(`${BASE()}/${endpoint}`, {
     method,
     headers: {
       Authorization: `Bearer ${TOKEN()}`,
@@ -25,21 +25,9 @@ async function req(method, endpoint, body) {
   return json;
 }
 
-// Marca como lida + mostra "digitando"
-async function digitando(to) {
-  try {
-    await req('POST', `${PHONE_ID()}/messages`, {
-      messaging_product: 'whatsapp',
-      status: 'read',
-      message_id: '_',
-    });
-  } catch {}
-  await req('POST', `${PHONE_ID()}/messages`, {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
-    type: 'reaction', // não existe "typing" na API — usamos um delay só
-  }).catch(() => {});
+// Simula digitando com um delay (WhatsApp Cloud API não tem "typing" nativo)
+async function digitando(_to) {
+  await new Promise(r => setTimeout(r, Number(process.env.META_TYPING || 1) * 1000));
 }
 
 async function texto(to, msg) {
@@ -59,7 +47,7 @@ async function subirMidia(arquivo, tipo) {
   form.append('file', fs.createReadStream(caminho));
   form.append('type', tipo);
   form.append('messaging_product', 'whatsapp');
-  const res = await fetch(`${BASE}/${PHONE_ID()}/media`, {
+  const res = await fetch(`${BASE()}/${PHONE_ID()}/media`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${TOKEN()}` },
     body: form,

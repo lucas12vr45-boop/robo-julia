@@ -1,5 +1,6 @@
 'use strict';
-require('dotenv').config();
+// dotenv só carrega em dev local — no Railway as vars já vêm do ambiente
+try { require('dotenv').config(); } catch {}
 const express = require('express');
 const crypto = require('crypto');
 const db = require('./db');
