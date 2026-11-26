@@ -78,6 +78,8 @@ async function conectar() {
     browser: ['Robô Júlia', 'Chrome', '1.0'],
     getMessage: async () => ({ conversation: '' }),
     generateHighQualityLinkPreview: false,
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => false,
   });
 
   whatsapp.setSock(sock);
