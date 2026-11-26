@@ -3,6 +3,7 @@ try { require('dotenv').config(); } catch {}
 
 const express = require('express');
 const fs = require('fs');
+const QRCode = require('qrcode');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const db = require('./db');
@@ -14,7 +15,31 @@ const { useLocalAuthState } = require('./auth');
 const app = express();
 app.use(express.json());
 
-app.get('/health', (_req, res) => res.json({ ok: true }));
+let qrAtual = null;
+let botConectado = false;
+
+app.get('/health', (_req, res) => res.json({ ok: true, conectado: botConectado }));
+
+app.get('/qr', async (_req, res) => {
+  if (botConectado) {
+    return res.send('<h2 style="font-family:sans-serif;color:green">✅ Bot já está conectado!</h2>');
+  }
+  if (!qrAtual) {
+    return res.send('<h2 style="font-family:sans-serif">⏳ Aguardando QR code... Recarregue em 5 segundos.</h2><script>setTimeout(()=>location.reload(),5000)</script>');
+  }
+  try {
+    const img = await QRCode.toDataURL(qrAtual, { width: 300 });
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR - Robô Júlia</title>
+<meta http-equiv="refresh" content="20"></head><body style="font-family:sans-serif;text-align:center;padding:40px">
+<h2>📱 Escaneie com o WhatsApp</h2>
+<p>WhatsApp → ⋮ → Dispositivos conectados → Conectar dispositivo</p>
+<img src="${img}" style="border:4px solid #333;border-radius:8px"><br>
+<small>Página atualiza automaticamente a cada 20s</small>
+</body></html>`);
+  } catch (e) {
+    res.send('<h2>Erro ao gerar QR. Recarregue.</h2>');
+  }
+});
 
 app.post('/webhook/cakto', async (req, res) => {
   const secret = req.headers['x-cakto-secret'] || req.headers['authorization'];
@@ -34,13 +59,7 @@ app.post('/webhook/cakto', async (req, res) => {
   }
 });
 
-const NUMERO_BOT = (process.env.NUMERO_BOT || '5524992488636').replace(/\D/g, '');
-let pairingRequested = false;
-let aguardandoPairing = false;
-
 async function conectar() {
-  pairingRequested = false;
-  aguardandoPairing = false;
   const { state, saveCreds } = await useLocalAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
@@ -56,42 +75,28 @@ async function conectar() {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    if (qr && !pairingRequested) {
-      pairingRequested = true;
-      aguardandoPairing = true;
-      try {
-        const code = await sock.requestPairingCode(NUMERO_BOT);
-        console.log('\n╔══════════════════════════════╗');
-        console.log('║   CÓDIGO DE EMPARELHAMENTO   ║');
-        console.log('║                              ║');
-        console.log(`║        ${code}        ║`);
-        console.log('║                              ║');
-        console.log('║  WhatsApp > Dispositivos     ║');
-        console.log('║  Conectados > Conectar com   ║');
-        console.log('║  número de telefone          ║');
-        console.log('╚══════════════════════════════╝\n');
-      } catch (e) {
-        console.log('Erro ao gerar pairing code:', e.message);
-      }
+    if (qr) {
+      qrAtual = qr;
+      botConectado = false;
+      console.log('QR code gerado. Acesse /qr para escanear.');
     }
 
     if (connection === 'close') {
+      botConectado = false;
       const statusCode = (lastDisconnect?.error instanceof Boom)
         ? lastDisconnect.error.output?.statusCode
         : null;
       const devReconectar = statusCode !== DisconnectReason.loggedOut;
       console.log('Conexão fechada. Status:', statusCode, '| Reconectar:', devReconectar);
       if (!devReconectar) {
-        // Limpa credenciais expiradas para gerar novo pairing na próxima conexão
         const AUTH_DIR = process.env.AUTH_DIR || '/tmp/wa-auth';
         try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
-        console.log('Credenciais limpas. Reconectando para novo pairing...');
-        aguardandoPairing = false;
+        console.log('Credenciais limpas. Reconectando...');
       }
-      // Se está aguardando o usuário digitar o código, espera 90s antes de tentar novo código
-      const delay = aguardandoPairing ? 90000 : (devReconectar ? 5000 : 2000);
-      setTimeout(conectar, delay);
+      setTimeout(conectar, devReconectar ? 5000 : 2000);
     } else if (connection === 'open') {
+      qrAtual = null;
+      botConectado = true;
       console.log('✅ Robô Júlia conectado ao WhatsApp!');
     }
   });
