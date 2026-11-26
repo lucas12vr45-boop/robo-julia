@@ -2,6 +2,7 @@
 try { require('dotenv').config(); } catch {}
 
 const express = require('express');
+const fs = require('fs');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const db = require('./db');
@@ -77,8 +78,13 @@ async function conectar() {
         : null;
       const devReconectar = statusCode !== DisconnectReason.loggedOut;
       console.log('Conexão fechada. Status:', statusCode, '| Reconectar:', devReconectar);
-      if (devReconectar) setTimeout(conectar, 5000);
-      else console.log('Sessão encerrada (logout). Reinicie o serviço para novo pairing.');
+      if (!devReconectar) {
+        // Limpa credenciais expiradas para gerar novo pairing na próxima conexão
+        const AUTH_DIR = process.env.AUTH_DIR || '/tmp/wa-auth';
+        try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
+        console.log('Credenciais limpas. Reconectando para novo pairing...');
+      }
+      setTimeout(conectar, devReconectar ? 5000 : 2000);
     } else if (connection === 'open') {
       console.log('✅ Robô Júlia conectado ao WhatsApp!');
     }
