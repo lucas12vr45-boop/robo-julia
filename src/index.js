@@ -1,4 +1,7 @@
 'use strict';
+// Polyfill necessário para Baileys no Node 18
+const { webcrypto } = require('crypto');
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
 try { require('dotenv').config(); } catch {}
 
 const express = require('express');
