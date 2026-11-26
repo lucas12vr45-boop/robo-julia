@@ -36,9 +36,11 @@ app.post('/webhook/cakto', async (req, res) => {
 
 const NUMERO_BOT = (process.env.NUMERO_BOT || '5524992488636').replace(/\D/g, '');
 let pairingRequested = false;
+let aguardandoPairing = false;
 
 async function conectar() {
   pairingRequested = false;
+  aguardandoPairing = false;
   const { state, saveCreds } = await useLocalAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
@@ -56,6 +58,7 @@ async function conectar() {
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr && !pairingRequested) {
       pairingRequested = true;
+      aguardandoPairing = true;
       try {
         const code = await sock.requestPairingCode(NUMERO_BOT);
         console.log('\n╔══════════════════════════════╗');
@@ -83,8 +86,11 @@ async function conectar() {
         const AUTH_DIR = process.env.AUTH_DIR || '/tmp/wa-auth';
         try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
         console.log('Credenciais limpas. Reconectando para novo pairing...');
+        aguardandoPairing = false;
       }
-      setTimeout(conectar, devReconectar ? 5000 : 2000);
+      // Se está aguardando o usuário digitar o código, espera 90s antes de tentar novo código
+      const delay = aguardandoPairing ? 90000 : (devReconectar ? 5000 : 2000);
+      setTimeout(conectar, delay);
     } else if (connection === 'open') {
       console.log('✅ Robô Júlia conectado ao WhatsApp!');
     }
