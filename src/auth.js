@@ -5,12 +5,14 @@ const { initAuthCreds, proto } = require('@whiskeysockets/baileys');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 function replacer(_k, v) {
+  // Buffer e Uint8Array precisam ser serializados explicitamente
   if (Buffer.isBuffer(v)) return { __buf: true, data: v.toString('base64') };
+  if (v instanceof Uint8Array) return { __buf: true, data: Buffer.from(v).toString('base64') };
   return v;
 }
 
 function reviver(_k, v) {
-  if (v && v.__buf) return Buffer.from(v.data, 'base64');
+  if (v && typeof v === 'object' && v.__buf) return Buffer.from(v.data, 'base64');
   return v;
 }
 
