@@ -1,6 +1,8 @@
 'use strict';
+const { Pool } = require('pg');
 const { initAuthCreds, proto } = require('@whiskeysockets/baileys');
-const db = require('./db');
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 function replacer(_k, v) {
   if (Buffer.isBuffer(v)) return { __buf: true, data: v.toString('base64') };
@@ -13,7 +15,7 @@ function reviver(_k, v) {
 }
 
 async function usePostgresAuthState() {
-  await db.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS sessao_baileys (
       chave TEXT PRIMARY KEY,
       valor TEXT NOT NULL
@@ -21,21 +23,21 @@ async function usePostgresAuthState() {
   `);
 
   const ler = async (chave) => {
-    const r = await db.query('SELECT valor FROM sessao_baileys WHERE chave=$1', [chave]);
+    const r = await pool.query('SELECT valor FROM sessao_baileys WHERE chave=$1', [chave]);
     if (!r.rows[0]) return null;
     return JSON.parse(r.rows[0].valor, reviver);
   };
 
   const gravar = async (chave, dado) => {
     const json = JSON.stringify(dado, replacer);
-    await db.query(`
+    await pool.query(`
       INSERT INTO sessao_baileys(chave,valor) VALUES($1,$2)
       ON CONFLICT(chave) DO UPDATE SET valor=$2
     `, [chave, json]);
   };
 
   const remover = async (chave) => {
-    await db.query('DELETE FROM sessao_baileys WHERE chave=$1', [chave]);
+    await pool.query('DELETE FROM sessao_baileys WHERE chave=$1', [chave]);
   };
 
   let creds = await ler('creds') || initAuthCreds();
