@@ -1,6 +1,6 @@
 'use strict';
 const { Pool } = require('pg');
-const { initAuthCreds, proto } = require('@whiskeysockets/baileys');
+const { initAuthCreds, proto } = require('@evolution-api/baileys');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 

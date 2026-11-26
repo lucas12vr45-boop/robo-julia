@@ -5,7 +5,7 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 try { require('dotenv').config(); } catch {}
 
 const express = require('express');
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@evolution-api/baileys');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 const db = require('./db');
