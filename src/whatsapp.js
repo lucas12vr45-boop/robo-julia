@@ -2,6 +2,16 @@
 const fs = require('fs');
 const path = require('path');
 
+// Thumbnail 1×1 pixel JPEG — evita erro "No image processing library available"
+const THUMB_1PX = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDB' +
+  'kSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAAR' +
+  'CAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAA' +
+  'AAAAAAAAAAAAAP/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAA' +
+  'AAAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=',
+  'base64'
+);
+
 let _sock = null;
 
 function setSock(sock) { _sock = sock; }
@@ -37,6 +47,7 @@ async function imagem(to, arquivo, legenda = '') {
   return _sock.sendMessage(jid(to), {
     image: fs.readFileSync(caminho),
     caption: legenda,
+    jpegThumbnail: THUMB_1PX,
   });
 }
 
