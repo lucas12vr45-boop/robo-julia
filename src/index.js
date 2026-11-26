@@ -44,21 +44,36 @@ async function conectar() {
   const { state, saveCreds } = await usePostgresAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
+  const NUMERO_BOT = process.env.NUMERO_BOT || '5524992488636';
+
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
     browser: ['Robô Júlia', 'Chrome', '1.0'],
-    getMessage: async () => ({ conversation: '' }), // evita erro de store
+    getMessage: async () => ({ conversation: '' }),
   });
 
   whatsapp.setSock(sock);
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 ESCANEIE O QR CODE:\n');
-      qrcode.generate(qr, { small: true });
+      // Gera pairing code em vez de QR (mais fácil de usar em servidor)
+      try {
+        const code = await sock.requestPairingCode(NUMERO_BOT);
+        console.log('\n╔══════════════════════════════╗');
+        console.log(`║  CÓDIGO DE EMPARELHAMENTO    ║`);
+        console.log(`║                              ║`);
+        console.log(`║       ${code}       ║`);
+        console.log('║                              ║');
+        console.log('║  WhatsApp > Dispositivos     ║');
+        console.log('║  Conectados > Conectar com   ║');
+        console.log('║  número de telefone          ║');
+        console.log('╚══════════════════════════════╝\n');
+      } catch (e) {
+        console.log('Erro ao gerar pairing code:', e.message);
+      }
     }
     if (connection === 'close') {
       const devReconectar = (lastDisconnect?.error instanceof Boom)
