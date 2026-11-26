@@ -17,6 +17,7 @@ app.use(express.json());
 
 let qrAtual = null;
 let botConectado = false;
+let sockAtual = null;
 
 app.get('/health', (_req, res) => res.json({ ok: true, conectado: botConectado }));
 
@@ -44,7 +45,8 @@ app.get('/qr', async (_req, res) => {
 app.get('/logout', async (_req, res) => {
   try {
     await db.pool.query('DELETE FROM wa_auth');
-    res.json({ ok: true, mensagem: 'Sessão WhatsApp apagada. Reinicie o bot para gerar novo QR.' });
+    try { await sockAtual?.logout(); } catch {}
+    res.json({ ok: true, mensagem: 'Sessão apagada. Novo QR em /qr em alguns segundos.' });
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
@@ -91,6 +93,7 @@ async function conectar() {
     shouldSyncHistoryMessage: () => false,
   });
 
+  sockAtual = sock;
   whatsapp.setSock(sock);
   sock.ev.on('creds.update', saveCreds);
 
@@ -126,9 +129,10 @@ async function conectar() {
     for (const msg of messages) {
       if (msg.key.fromMe) continue;
       const remoteJid = msg.key.remoteJid || '';
-      if (remoteJid.endsWith('@g.us')) continue;
+      if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) continue;
 
-      const tel = remoteJid.replace('@s.whatsapp.net', '');
+      const tel = remoteJid.endsWith('@lid') ? remoteJid : remoteJid.replace('@s.whatsapp.net', '');
+      console.log('Mensagem recebida de', remoteJid);
       const nome = msg.pushName || '';
       let texto = '';
       let tipoMidia = null;

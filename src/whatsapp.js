@@ -17,6 +17,7 @@ let _sock = null;
 function setSock(sock) { _sock = sock; }
 
 function jid(tel) {
+  if (tel.includes('@')) return tel;
   return tel.replace(/\D/g, '') + '@s.whatsapp.net';
 }
 
