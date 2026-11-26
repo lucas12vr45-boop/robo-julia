@@ -62,21 +62,36 @@ async function reescreverBanco(intencao, textoBase) {
   return r?.texto || textoBase;
 }
 
-// Transcrição de áudio via OpenAI Whisper
+// Transcrição de áudio via Claude (sem dependência da OpenAI)
 async function transcrever(bufferOgg) {
-  const FormData = require('form-data');
-  const fetch2 = require('node-fetch');
-  const form = new FormData();
-  form.append('file', bufferOgg, { filename: 'audio.ogg', contentType: 'audio/ogg' });
-  form.append('model', 'whisper-1');
-  form.append('language', 'pt');
-  const res = await fetch2('https://api.openai.com/v1/audio/transcriptions', {
+  const base64 = bufferOgg.toString('base64');
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: form,
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'audio/ogg', data: base64 },
+          },
+          {
+            type: 'text',
+            text: 'Transcreva exatamente o que está sendo dito neste áudio em português. Retorne apenas o texto transcrito, sem explicações.',
+          },
+        ],
+      }],
+    }),
   });
   const json = await res.json();
-  return json.text || '';
+  return json.content?.[0]?.text?.trim() || '';
 }
 
 module.exports = { classificar, acolhimento, reescreverBanco, transcrever };
