@@ -102,13 +102,13 @@ async function iniciarFluxo(cliente, nome) {
   const msgAbertura = sorteia(ABERTURA)(nome?.split(' ')[0] || '');
   await meta.texto(tel, msgAbertura);
 
-  // Passo 2 — áudio A1 (desativado temporariamente: WhatsApp Web trava mídia pesada)
-  // await delay(5, 10);
-  // const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
-  // const disponiveis = A1.filter((a) => !usados.includes(a));
-  // const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
-  // await meta.audio(tel, audioEscolhido);
-  // await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
+  // Passo 2 — áudio A1
+  await delay(5, 10);
+  const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
+  const disponiveis = A1.filter((a) => !usados.includes(a));
+  const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
+  await meta.audio(tel, audioEscolhido);
+  await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
 
   // Passo 3 — depoimentos (textos ou imagens)
   await delay(5, 10);
@@ -134,41 +134,36 @@ async function iniciarFluxo(cliente, nome) {
 // ─── PASSO 6–8: RESPOSTA DO CLIENTE ──────────────────────────────────────────
 async function processarRespostaCliente(cliente, texto) {
   const tel = cliente.telefone;
+  const t = texto.toLowerCase();
 
-  // Histórico simples (só a msg atual por enquanto)
-  const historico = texto;
-  const { dor, intencao } = await ia.classificar(historico);
-
-  // Atalhos: pergunta preço/link antes de contar a dor
-  if (['pergunta_preco', 'quer_link'].includes(intencao)) {
+  // Atalhos por palavras-chave simples (sem IA)
+  if (/quanto|preço|valor|caro|link|comprar|quero|pagar/.test(t)) {
     await enviarLink(cliente, 'GERAL');
     return;
   }
-  if (intencao === 'ja_pagou') {
+  if (/paguei|já paguei|efetuei|confirmei/.test(t)) {
     await verificarPagamento(cliente);
     return;
   }
-  if (['robo', 'humano'].includes(intencao)) {
-    await meta.texto(tel, await ia.reescreverBanco('robo', BANCO.robo));
+  if (/robô|robo|bot|automático|automatico|humano|atendente/.test(t)) {
+    await meta.texto(tel, BANCO.robo);
     await meta.alertaDono(`${tel} perguntou se é robô/pediu humano.`);
     await db.upsertCliente(tel, { precisa_humano: true });
     return;
   }
 
-  // Passo 6 — acolhimento
-  await delay(15, 40);
-  const frase = await ia.acolhimento(historico);
-  await meta.texto(tel, frase);
-  await db.upsertCliente(tel, { dor, passo_atual: 6 });
+  // Passo 6 — acolhimento fixo (sem IA)
+  await delay(5, 10);
+  await meta.texto(tel, 'entendo você, isso pesa mesmo… 🥺');
+  await db.upsertCliente(tel, { dor: 'GERAL', passo_atual: 6 });
 
-  // Passo 7 — áudio A2 da dor
-  await delay(6, 10);
-  const a2 = A2[dor] || A2.GERAL;
-  await meta.audio(tel, a2);
-  await db.upsertCliente(tel, { audio_a2_usado: a2 });
+  // Passo 7 — áudio A2 GERAL
+  await delay(3, 6);
+  await meta.audio(tel, A2.GERAL);
+  await db.upsertCliente(tel, { audio_a2_usado: A2.GERAL });
 
   // Passo 8 — link
-  await enviarLink(cliente, dor);
+  await enviarLink(cliente, 'GERAL');
 }
 
 // ─── ENVIAR LINK ──────────────────────────────────────────────────────────────
@@ -209,20 +204,20 @@ async function processarPosLink(cliente, texto) {
     return;
   }
 
-  // Banco de respostas
-  const mapa = {
-    desconfia: 'golpe',
-    pensar: 'pensar',
-    tempo: 'tempo',
-    outra: 'outra',
-  };
-  const chave = mapa[intencao] || 'outra';
-  const base = BANCO[chave] || BANCO.outra;
-  const resp = await ia.reescreverBanco(chave, base);
-  await meta.texto(tel, resp);
-
-  // Não trava em humano para perguntas comuns — cliente continua no fluxo
-
+  // Banco de respostas por palavra-chave (sem IA)
+  const t = texto.toLowerCase();
+  if (/golpe|fraude|fake|falso|mentira/.test(t)) {
+    await meta.texto(tel, BANCO.golpe);
+  } else if (/pensar|depois|amanhã|semana/.test(t)) {
+    await meta.texto(tel, BANCO.pensar);
+  } else if (/tempo|minuto|hora|quando|demorar/.test(t)) {
+    await meta.texto(tel, BANCO.tempo);
+  } else {
+    // Qualquer outra coisa: reenvia o link sem inventar resposta
+    await meta.texto(tel, 'qualquer dúvida me fala, tô aqui 😊 o link ainda tá válido 👇');
+    await delay(1, 2);
+    await meta.texto(tel, cliente.link_enviado || linkDor('GERAL'));
+  }
 }
 
 // ─── VERIFICAR PAGAMENTO ─────────────────────────────────────────────────────
@@ -231,7 +226,7 @@ async function verificarPagamento(cliente) {
   if (cliente.pagou) {
     await entregarPDF(cliente);
   } else {
-    await meta.texto(tel, await ia.reescreverBanco('ja_pagou', BANCO.ja_pagou));
+    await meta.texto(tel, BANCO.ja_paguei);
     await meta.alertaDono(`${tel} disse que pagou mas não está registrado. Verificar na Cakto.`);
     await db.upsertCliente(tel, { precisa_humano: true });
   }

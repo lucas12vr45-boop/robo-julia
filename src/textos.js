@@ -26,9 +26,9 @@ const DEPOIMENTOS = [
 
 // ─── ABERTURA (passo 1) ────────────────────────────────────────────────────────
 const ABERTURA = [
-  (nome) => `oii${nome ? ' ' + nome : ''}! já te mando um áudio 😊`,
-  () => 'oi! que bom que você chamou, peraí que vou te mandar um áudio',
-  () => 'oiii, tudo bem? deixa eu te mandar um áudio rapidinho',
+  (nome) => `oii${nome ? ' ' + nome : ''}! que bom que você veio 😊 deixa eu te mostrar uma coisa`,
+  (nome) => `oi${nome ? ' ' + nome : ''}! tava esperando você 💛 olha só o que tenho aqui`,
+  () => 'oiii, tudo bem? deixa eu te mostrar uma coisa rapidinho',
 ];
 
 // ─── DEPOIS DOS DEPOIMENTOS (passo 4) ─────────────────────────────────────────
