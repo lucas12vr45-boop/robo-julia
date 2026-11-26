@@ -1,5 +1,5 @@
 'use strict';
-const meta = require('./meta');
+const meta = require('./whatsapp');
 const ia = require('./ia');
 const db = require('./db');
 const janela = require('./janela');
@@ -277,16 +277,10 @@ async function processarPosPago(cliente, texto) {
 }
 
 // ─── DOWNLOAD DE MÍDIA ───────────────────────────────────────────────────────
-async function baixarMidia(mediaId) {
-  const fetch = require('node-fetch');
-  const r1 = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
-    headers: { Authorization: `Bearer ${process.env.META_TOKEN}` },
-  });
-  const { url } = await r1.json();
-  const r2 = await fetch(url, {
-    headers: { Authorization: `Bearer ${process.env.META_TOKEN}` },
-  });
-  return r2.buffer();
+// Com Baileys, o buffer já vem baixado — só repassa
+async function baixarMidia(bufferOuId) {
+  if (Buffer.isBuffer(bufferOuId)) return bufferOuId;
+  throw new Error('mediaId inválido para Baileys');
 }
 
 module.exports = { receberMensagem, vendaConfirmada, PEDE_DEPO };

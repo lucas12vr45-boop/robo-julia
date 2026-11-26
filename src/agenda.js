@@ -1,6 +1,6 @@
 'use strict';
 const db = require('./db');
-const meta = require('./meta');
+const meta = require('./whatsapp');
 const { LEMBRETE_2H, LEMBRETE_20H, NAO_PAGOU_40MIN, PEDE_DEPO } = require('./textos');
 const { vendaConfirmada } = require('./fluxo');
 const { dentroJanela } = require('./janela');
