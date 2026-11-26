@@ -76,14 +76,18 @@ async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid) {
 
   // Fluxo principal
   const passo = cliente.passo_atual || 0;
+  const ehMidia = textoFinal === '[mídia]';
 
   if (passo === 0) {
     await iniciarFluxo(cliente, nome);
   } else if (passo >= 4 && passo < 8) {
-    // Aguardando resposta do cliente (passo 5)
+    if (ehMidia) {
+      await meta.texto(tel, 'pode me contar por texto mesmo? assim consigo te ajudar melhor 😊');
+      return;
+    }
     await processarRespostaCliente(cliente, textoFinal);
   } else if (passo === 8) {
-    // Depois do link: perguntas, objeções
+    if (ehMidia) return; // ignora mídia no pós-link
     await processarPosLink(cliente, textoFinal);
   }
 }
@@ -218,8 +222,8 @@ async function processarPosLink(cliente, texto) {
   await meta.texto(tel, resp);
 
   if (chave === 'outra') {
-    await meta.alertaDono(`${tel} fez uma pergunta que não sei responder:\n"${texto}"`);
-    await db.upsertCliente(tel, { precisa_humano: true });
+    await meta.alertaDono(`${tel} fez uma pergunta fora do script:\n"${texto}"`);
+    // Não trava em humano — cliente continua no fluxo automático
   }
 }
 
