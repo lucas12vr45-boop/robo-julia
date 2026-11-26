@@ -1,26 +1,20 @@
 'use strict';
-// Polyfill necessário para Baileys no Node 18
-const { webcrypto } = require('crypto');
-if (!globalThis.crypto) globalThis.crypto = webcrypto;
 try { require('dotenv').config(); } catch {}
 
 const express = require('express');
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@evolution-api/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const qrcode = require('qrcode-terminal');
 const db = require('./db');
 const fluxo = require('./fluxo');
 const { iniciarAgenda } = require('./agenda');
 const whatsapp = require('./whatsapp');
-const { usePostgresAuthState } = require('./auth');
+const { useLocalAuthState } = require('./auth');
 
 const app = express();
 app.use(express.json());
 
-// ─── HEALTH ───────────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// ─── WEBHOOK CAKTO ────────────────────────────────────────────────────────────
 app.post('/webhook/cakto', async (req, res) => {
   const secret = req.headers['x-cakto-secret'] || req.headers['authorization'];
   if (process.env.CAKTO_WEBHOOK_SECRET && secret !== process.env.CAKTO_WEBHOOK_SECRET) {
@@ -39,12 +33,13 @@ app.post('/webhook/cakto', async (req, res) => {
   }
 });
 
-// ─── BAILEYS ─────────────────────────────────────────────────────────────────
-async function conectar() {
-  const { state, saveCreds } = await usePostgresAuthState();
-  const { version } = await fetchLatestBaileysVersion();
+const NUMERO_BOT = (process.env.NUMERO_BOT || '5524992488636').replace(/\D/g, '');
+let pairingRequested = false;
 
-  const NUMERO_BOT = process.env.NUMERO_BOT || '5524992488636';
+async function conectar() {
+  pairingRequested = false;
+  const { state, saveCreds } = await useLocalAuthState();
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
     version,
@@ -58,14 +53,14 @@ async function conectar() {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    if (qr) {
-      // Gera pairing code em vez de QR (mais fácil de usar em servidor)
+    if (qr && !pairingRequested) {
+      pairingRequested = true;
       try {
         const code = await sock.requestPairingCode(NUMERO_BOT);
         console.log('\n╔══════════════════════════════╗');
-        console.log(`║  CÓDIGO DE EMPARELHAMENTO    ║`);
-        console.log(`║                              ║`);
-        console.log(`║       ${code}       ║`);
+        console.log('║   CÓDIGO DE EMPARELHAMENTO   ║');
+        console.log('║                              ║');
+        console.log(`║        ${code}        ║`);
         console.log('║                              ║');
         console.log('║  WhatsApp > Dispositivos     ║');
         console.log('║  Conectados > Conectar com   ║');
@@ -75,13 +70,15 @@ async function conectar() {
         console.log('Erro ao gerar pairing code:', e.message);
       }
     }
+
     if (connection === 'close') {
-      const devReconectar = (lastDisconnect?.error instanceof Boom)
-        ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut
-        : true;
-      console.log('Conexão fechada. Reconectar:', devReconectar);
+      const statusCode = (lastDisconnect?.error instanceof Boom)
+        ? lastDisconnect.error.output?.statusCode
+        : null;
+      const devReconectar = statusCode !== DisconnectReason.loggedOut;
+      console.log('Conexão fechada. Status:', statusCode, '| Reconectar:', devReconectar);
       if (devReconectar) setTimeout(conectar, 5000);
-      else console.log('⚠️  Sessão encerrada. Escaneie o QR novamente.');
+      else console.log('Sessão encerrada (logout). Reinicie o serviço para novo pairing.');
     } else if (connection === 'open') {
       console.log('✅ Robô Júlia conectado ao WhatsApp!');
     }
@@ -89,18 +86,16 @@ async function conectar() {
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
-
     for (const msg of messages) {
       if (msg.key.fromMe) continue;
       const remoteJid = msg.key.remoteJid || '';
-      if (remoteJid.endsWith('@g.us')) continue; // ignora grupos
+      if (remoteJid.endsWith('@g.us')) continue;
 
       const tel = remoteJid.replace('@s.whatsapp.net', '');
       const nome = msg.pushName || '';
       let texto = '';
       let tipoMidia = null;
       let bufferMidia = null;
-
       const m = msg.message || {};
 
       if (m.conversation) {
@@ -129,9 +124,7 @@ async function conectar() {
   });
 }
 
-// ─── INICIAR ─────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-
 (async () => {
   await db.init();
   iniciarAgenda();
