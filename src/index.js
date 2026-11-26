@@ -10,7 +10,7 @@ const db = require('./db');
 const fluxo = require('./fluxo');
 const { iniciarAgenda } = require('./agenda');
 const whatsapp = require('./whatsapp');
-const { useLocalAuthState } = require('./auth');
+const { useDbAuthState } = require('./auth-db');
 
 const app = express();
 app.use(express.json());
@@ -41,6 +41,15 @@ app.get('/qr', async (_req, res) => {
   }
 });
 
+app.get('/logout', async (_req, res) => {
+  try {
+    await db.pool.query('DELETE FROM wa_auth');
+    res.json({ ok: true, mensagem: 'Sessão WhatsApp apagada. Reinicie o bot para gerar novo QR.' });
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
 app.get('/reset/:tel', async (req, res) => {
   const tel = req.params.tel.replace(/\D/g, '');
   if (!tel) return res.status(400).json({ erro: 'telefone inválido' });
@@ -68,7 +77,7 @@ app.post('/webhook/cakto', async (req, res) => {
 });
 
 async function conectar() {
-  const { state, saveCreds } = await useLocalAuthState();
+  const { state, saveCreds } = await useDbAuthState();
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({

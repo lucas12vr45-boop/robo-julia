@@ -80,4 +80,4 @@ async function marcarFeito(id) {
   await pool.query('UPDATE agenda SET feito = TRUE WHERE id = $1', [id]);
 }
 
-module.exports = { init, upsertCliente, getCliente, agendarAcao, cancelarAgenda, pegarPendentes, marcarFeito };
+module.exports = { pool, init, upsertCliente, getCliente, agendarAcao, cancelarAgenda, pegarPendentes, marcarFeito };
