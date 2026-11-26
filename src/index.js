@@ -77,6 +77,7 @@ async function conectar() {
     printQRInTerminal: false,
     browser: ['Robô Júlia', 'Chrome', '1.0'],
     getMessage: async () => ({ conversation: '' }),
+    generateHighQualityLinkPreview: false,
   });
 
   whatsapp.setSock(sock);

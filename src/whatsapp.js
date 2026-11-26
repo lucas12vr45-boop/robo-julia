@@ -30,7 +30,7 @@ async function digitando(to) {
 
 async function texto(to, msg) {
   await digitando(to);
-  return _sock.sendMessage(jid(to), { text: msg });
+  return _sock.sendMessage(jid(to), { text: msg, linkPreview: false });
 }
 
 async function audio(to, arquivo) {

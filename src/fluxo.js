@@ -221,10 +221,8 @@ async function processarPosLink(cliente, texto) {
   const resp = await ia.reescreverBanco(chave, base);
   await meta.texto(tel, resp);
 
-  if (chave === 'outra') {
-    await meta.alertaDono(`${tel} fez uma pergunta fora do script:\n"${texto}"`);
-    // Não trava em humano — cliente continua no fluxo automático
-  }
+  // Não trava em humano para perguntas comuns — cliente continua no fluxo
+
 }
 
 // ─── VERIFICAR PAGAMENTO ─────────────────────────────────────────────────────
