@@ -94,17 +94,17 @@ async function iniciarFluxo(cliente, nome) {
   await db.upsertCliente(tel, { passo_atual: 1 });
 
   // Passo 1 — abertura
-  await delay(20, 60);
+  await delay(3, 8);
   const msgAbertura = sorteia(ABERTURA)(nome?.split(' ')[0] || '');
   await meta.texto(tel, msgAbertura);
 
-  // Passo 2 — áudio A1 (sorteia, não repete)
-  await delay(5, 10);
-  const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
-  const disponiveis = A1.filter((a) => !usados.includes(a));
-  const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
-  await meta.audio(tel, audioEscolhido);
-  await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
+  // Passo 2 — áudio A1 (desativado temporariamente: WhatsApp Web trava mídia pesada)
+  // await delay(5, 10);
+  // const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
+  // const disponiveis = A1.filter((a) => !usados.includes(a));
+  // const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
+  // await meta.audio(tel, audioEscolhido);
+  // await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
 
   // Passo 3 — depoimentos (textos ou imagens)
   await delay(5, 10);
