@@ -41,6 +41,14 @@ app.get('/qr', async (_req, res) => {
   }
 });
 
+app.get('/reset/:tel', async (req, res) => {
+  const tel = req.params.tel.replace(/\D/g, '');
+  if (!tel) return res.status(400).json({ erro: 'telefone inválido' });
+  await db.upsertCliente(tel, { passo_atual: 0, precisa_humano: false });
+  await db.cancelarAgenda(tel);
+  res.json({ ok: true, tel, mensagem: 'passo resetado para 0' });
+});
+
 app.post('/webhook/cakto', async (req, res) => {
   const secret = req.headers['x-cakto-secret'] || req.headers['authorization'];
   if (process.env.CAKTO_WEBHOOK_SECRET && secret !== process.env.CAKTO_WEBHOOK_SECRET) {

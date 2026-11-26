@@ -42,24 +42,39 @@ async function chamarIA(mensagens, schema) {
 
 // Tarefa A: classifica dor + intenção
 async function classificar(historico) {
-  const prompt = `Histórico das últimas mensagens do cliente (mais recente por último):\n${historico}\n\nRetorne SOMENTE este JSON (sem explicação):\n{"dor":"DIVIDA|NAOSOBRA|IMPREVISTO|FAMILIA|VONTADE|ANONOVO|GERAL","intencao":"conta_dor|pergunta_preco|quer_link|ja_pagou|caro|desconfia|pensar|tempo|robo|humano|outra","confianca":0.0}`;
-  const r = await chamarIA(prompt, null);
-  if (!r || r.confianca < 0.6) return { dor: 'GERAL', intencao: 'outra', confianca: 0 };
-  return r;
+  try {
+    const prompt = `Histórico das últimas mensagens do cliente (mais recente por último):\n${historico}\n\nRetorne SOMENTE este JSON (sem explicação):\n{"dor":"DIVIDA|NAOSOBRA|IMPREVISTO|FAMILIA|VONTADE|ANONOVO|GERAL","intencao":"conta_dor|pergunta_preco|quer_link|ja_pagou|caro|desconfia|pensar|tempo|robo|humano|outra","confianca":0.0}`;
+    const r = await chamarIA(prompt, null);
+    if (!r || r.confianca < 0.6) return { dor: 'GERAL', intencao: 'outra', confianca: 0 };
+    return r;
+  } catch (e) {
+    console.error('[ia] classificar falhou, usando fallback:', e.message?.slice(0, 80));
+    return { dor: 'GERAL', intencao: 'outra', confianca: 0 };
+  }
 }
 
 // Tarefa B: frase de acolhimento (1 frase, até 20 palavras, minúscula, 1 emoji)
 async function acolhimento(historico) {
-  const prompt = `Histórico:\n${historico}\n\nEscreva UMA frase de acolhimento (até 20 palavras, minúscula, máximo 1 emoji) citando com outras palavras o que o cliente contou. Retorne SOMENTE: {"frase":"..."}`;
-  const r = await chamarIA(prompt, null);
-  return r?.frase || 'entendo você, isso pesa mesmo…';
+  try {
+    const prompt = `Histórico:\n${historico}\n\nEscreva UMA frase de acolhimento (até 20 palavras, minúscula, máximo 1 emoji) citando com outras palavras o que o cliente contou. Retorne SOMENTE: {"frase":"..."}`;
+    const r = await chamarIA(prompt, null);
+    return r?.frase || 'entendo você, isso pesa mesmo…';
+  } catch (e) {
+    console.error('[ia] acolhimento falhou, usando fallback:', e.message?.slice(0, 80));
+    return 'entendo você, isso pesa mesmo…';
+  }
 }
 
 // Tarefa C: escolhe e reescreve levemente uma resposta do banco
 async function reescreverBanco(intencao, textoBase) {
-  const prompt = `Reescreva levemente a frase abaixo mantendo o sentido, em tom de WhatsApp (minúscula, 1 emoji no máximo). Retorne SOMENTE: {"texto":"..."}\nFrase original: ${textoBase}`;
-  const r = await chamarIA(prompt, null);
-  return r?.texto || textoBase;
+  try {
+    const prompt = `Reescreva levemente a frase abaixo mantendo o sentido, em tom de WhatsApp (minúscula, 1 emoji no máximo). Retorne SOMENTE: {"texto":"..."}\nFrase original: ${textoBase}`;
+    const r = await chamarIA(prompt, null);
+    return r?.texto || textoBase;
+  } catch (e) {
+    console.error('[ia] reescreverBanco falhou, usando original:', e.message?.slice(0, 80));
+    return textoBase;
+  }
 }
 
 // Transcrição de áudio via Claude (sem dependência da OpenAI)
