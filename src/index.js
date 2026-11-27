@@ -157,7 +157,7 @@ async function conectar() {
       }
 
       try {
-        await fluxo.receberMensagem(tel, nome, texto, tipoMidia, bufferMidia, null);
+        await fluxo.receberMensagem(tel, nome, texto, tipoMidia, bufferMidia, null, msg.key);
       } catch (e) {
         console.error('Erro ao processar mensagem:', e.message);
       }

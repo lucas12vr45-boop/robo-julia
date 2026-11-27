@@ -3,7 +3,7 @@ const meta = require('./whatsapp');
 const ia = require('./ia');
 const db = require('./db');
 const janela = require('./janela');
-const { DEPOIMENTOS, ABERTURA, PERGUNTA_DOR, LEMBRETE_2H, LEMBRETE_20H,
+const { DEPOIMENTOS, PERGUNTA_DOR, LEMBRETE_2H, LEMBRETE_20H,
         INTRO_LINK, POS_LINK, NAO_PAGOU_40MIN, DESCONTO, POS_VENDA,
         PEDE_DEPO, PEDE_AUTORIZACAO, BANCO, linkDor, sorteia } = require('./textos');
 
@@ -19,21 +19,12 @@ const A2 = {
 };
 const A3 = 'A3-APP.ogg';
 
-function delay(min, max) {
-  return new Promise((r) => setTimeout(r, (Math.random() * (max - min) + min) * 1000));
-}
-
 // ─── RECEBE MENSAGEM DO CLIENTE ───────────────────────────────────────────────
-async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid) {
+async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid, msgKey) {
   // Modo teste: só responde ao número do dono
   if (process.env.MODO_TESTE === '1') {
     const permitidos = (process.env.NUMEROS_TESTE || '').split(',').map(s => s.trim());
     if (!permitidos.includes(tel)) return;
-  }
-
-  if (janela.foraDoHorario()) {
-    await db.agendarAcao(tel, 'retomar', { nome, texto }, janela.proximoHorario());
-    return;
   }
 
   let cliente = await db.getCliente(tel);
@@ -80,6 +71,7 @@ async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid) {
   const ehMidia = textoFinal === '[mídia]';
 
   if (passo === 0) {
+    if (msgKey) await meta.curtir(tel, msgKey);
     await iniciarFluxo(cliente, nome);
   } else if (passo === 4 || passo === 5) {
     if (ehMidia) {
@@ -98,23 +90,15 @@ async function iniciarFluxo(cliente, nome) {
   const tel = cliente.telefone;
   await db.upsertCliente(tel, { passo_atual: 1 });
 
-  // Passo 1 — abertura
-  await delay(15, 30);
-  const msgAbertura = sorteia(ABERTURA)(nome?.split(' ')[0] || '');
-  await meta.texto(tel, msgAbertura);
-
-  // Passo 2 — áudio A1
-  await delay(6, 12);
+  // Passo 1 — áudio A1 (sem texto de abertura)
   const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
   const disponiveis = A1.filter((a) => !usados.includes(a));
   const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
-  await meta.audio(tel, audioEscolhido);
+  await meta.audio(tel, audioEscolhido, [10, 12]);
   await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
 
   // Passo 3 — depoimentos (espera o cliente ouvir o áudio)
-  await delay(30, 45);
   for (const dep of DEPOIMENTOS) {
-    await delay(6, 12);
     if (dep.tipo === 'texto') {
       await meta.texto(tel, dep.conteudo);
     } else if (dep.tipo === 'imagem') {
@@ -123,7 +107,6 @@ async function iniciarFluxo(cliente, nome) {
   }
 
   // Passo 4 — pergunta de dor
-  await delay(15, 25);
   await meta.texto(tel, sorteia(PERGUNTA_DOR));
   await db.upsertCliente(tel, { passo_atual: 5 });
 
@@ -155,28 +138,20 @@ async function processarRespostaCliente(cliente, texto) {
 
   // Passo 6 — acolhimento fixo (sem IA)
   await db.upsertCliente(tel, { dor: 'GERAL', passo_atual: 6 });
-  await delay(10, 20);
   await meta.texto(tel, 'entendo você, isso pesa mesmo… 🥺');
 
   // Passo 7 — áudio A2 GERAL
-  await delay(8, 14);
   await meta.audio(tel, A2.GERAL);
   await db.upsertCliente(tel, { audio_a2_usado: A2.GERAL, passo_atual: 7 });
 
   // Passo 7b — áudio A3 (vantagens + app) e amostra do guia
   if (meta.existeAudio(A3)) {
-    await delay(25, 35);
     await meta.audio(tel, A3);
-    await delay(55, 70);
-  } else {
-    await delay(25, 40);
   }
   await meta.imagem(tel, 'amostra-guia.jpg', 'olha um pouquinho de como ele é por dentro 👀');
-  await delay(5, 9);
   await meta.documento(tel, 'Amostra-Destrave-2027.pdf', 'Amostra - Destrave Seu Dinheiro 2027.pdf');
 
   // Passo 8 — link
-  await delay(20, 30);
   await enviarLink(cliente, 'GERAL');
 }
 
@@ -184,11 +159,8 @@ async function processarRespostaCliente(cliente, texto) {
 async function enviarLink(cliente, dor) {
   const tel = cliente.telefone;
   const link = linkDor(dor);
-  await delay(5, 10);
   await meta.texto(tel, sorteia(INTRO_LINK));
-  await delay(3, 5);
   await meta.texto(tel, link);
-  await delay(6, 10);
   await meta.texto(tel, sorteia(POS_LINK));
   await db.upsertCliente(tel, { passo_atual: 8, link_enviado: link, preco_oferecido: dor });
 
@@ -203,7 +175,6 @@ async function processarPosLink(cliente, texto) {
 
   if (intencao === 'caro') {
     await meta.texto(tel, DESCONTO[0]);
-    await delay(2, 4);
     await meta.texto(tel, DESCONTO[1]);
     return;
   }
@@ -229,7 +200,6 @@ async function processarPosLink(cliente, texto) {
   } else {
     // Qualquer outra coisa: reenvia o link sem inventar resposta
     await meta.texto(tel, 'qualquer dúvida me fala, tô aqui 😊 o link ainda tá válido 👇');
-    await delay(1, 2);
     await meta.texto(tel, cliente.link_enviado || linkDor('GERAL'));
   }
 }
@@ -250,7 +220,6 @@ async function verificarPagamento(cliente) {
 async function entregarPDF(cliente) {
   const tel = cliente.telefone;
   await meta.texto(tel, sorteia(POS_VENDA));
-  await delay(1, 3);
   await meta.documento(tel, 'Destrave-Seu-Dinheiro-2027.pdf', 'Destrave Seu Dinheiro em 2027.pdf');
 }
 

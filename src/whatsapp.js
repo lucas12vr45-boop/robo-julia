@@ -41,14 +41,22 @@ function existeAudio(arquivo) {
   return fs.existsSync(path.join(__dirname, '..', 'midia', 'audios', arquivo));
 }
 
+function entre(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+async function curtir(to, key) {
+  try { await _sock.sendMessage(jid(to), { react: { text: '❤️', key } }); } catch {}
+}
+
 async function texto(to, msg) {
-  await presenca(to, 'composing', Math.min(8, Math.max(2, msg.length / 25)));
+  await presenca(to, 'composing', entre(4, 6));
   return _sock.sendMessage(jid(to), { text: msg, linkPreview: false });
 }
 
-async function audio(to, arquivo) {
+async function audio(to, arquivo, faixa = [8, 10]) {
   const caminho = path.join(__dirname, '..', 'midia', 'audios', arquivo);
-  await presenca(to, 'recording', 5 + Math.random() * 5);
+  await presenca(to, 'recording', entre(...faixa));
   return _sock.sendMessage(jid(to), {
     audio: fs.readFileSync(caminho),
     mimetype: 'audio/ogg; codecs=opus',
@@ -58,6 +66,7 @@ async function audio(to, arquivo) {
 
 async function imagem(to, arquivo, legenda = '') {
   const caminho = path.join(__dirname, '..', 'midia', 'imagens', arquivo);
+  await presenca(to, 'composing', entre(4, 6));
   return _sock.sendMessage(jid(to), {
     image: fs.readFileSync(caminho),
     caption: legenda,
@@ -67,6 +76,7 @@ async function imagem(to, arquivo, legenda = '') {
 
 async function documento(to, arquivo, nomeExibido) {
   const caminho = path.join(__dirname, '..', 'midia', 'produto', arquivo);
+  await presenca(to, 'composing', entre(4, 6));
   return _sock.sendMessage(jid(to), {
     document: fs.readFileSync(caminho),
     mimetype: 'application/pdf',
@@ -80,4 +90,4 @@ async function alertaDono(msg) {
   return texto(dono, `🤖 ALERTA ROBÔ:\n${msg}`);
 }
 
-module.exports = { setSock, digitando, existeAudio, texto, audio, imagem, documento, alertaDono };
+module.exports = { setSock, digitando, curtir, existeAudio, texto, audio, imagem, documento, alertaDono };
