@@ -37,6 +37,16 @@ async function presenca(to, tipo, segundos) {
   } catch {}
 }
 
+// Opus no Ogg: duração = (granule da última página - pre-skip) / 48000
+function duracaoOgg(buf) {
+  const ultima = buf.lastIndexOf('OggS');
+  const head = buf.indexOf('OpusHead');
+  if (ultima < 0 || head < 0) return 0;
+  const granule = Number(buf.readBigInt64LE(ultima + 6));
+  const preSkip = buf.readUInt16LE(head + 10);
+  return Math.max(0, (granule - preSkip) / 48000);
+}
+
 function existeAudio(arquivo) {
   return fs.existsSync(path.join(__dirname, '..', 'midia', 'audios', arquivo));
 }
@@ -56,12 +66,18 @@ async function texto(to, msg) {
 
 async function audio(to, arquivo, faixa = [8, 10]) {
   const caminho = path.join(__dirname, '..', 'midia', 'audios', arquivo);
+  const buf = fs.readFileSync(caminho);
+  const duracao = duracaoOgg(buf);
   await presenca(to, 'recording', entre(...faixa));
-  return _sock.sendMessage(jid(to), {
-    audio: fs.readFileSync(caminho),
+  const r = await _sock.sendMessage(jid(to), {
+    audio: buf,
     mimetype: 'audio/ogg; codecs=opus',
     ptt: true,
+    seconds: Math.round(duracao),
   });
+  // Espera o cliente ouvir; a próxima mensagem já tem uns 5s de "digitando"
+  await new Promise(res => setTimeout(res, Math.max(0, duracao - 5) * 1000));
+  return r;
 }
 
 async function imagem(to, arquivo, legenda = '') {
