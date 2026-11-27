@@ -17,6 +17,7 @@ const A2 = {
   ANONOVO:    'A2-ANONOVO.ogg',
   GERAL:      'A2-GERAL.ogg',
 };
+const A3 = 'A3-APP.ogg';
 
 function delay(min, max) {
   return new Promise((r) => setTimeout(r, (Math.random() * (max - min) + min) * 1000));
@@ -80,7 +81,7 @@ async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid) {
 
   if (passo === 0) {
     await iniciarFluxo(cliente, nome);
-  } else if (passo >= 4 && passo < 8) {
+  } else if (passo === 4 || passo === 5) {
     if (ehMidia) {
       await meta.texto(tel, 'pode me contar por texto mesmo? assim consigo te ajudar melhor 😊');
       return;
@@ -98,22 +99,22 @@ async function iniciarFluxo(cliente, nome) {
   await db.upsertCliente(tel, { passo_atual: 1 });
 
   // Passo 1 — abertura
-  await delay(3, 8);
+  await delay(15, 30);
   const msgAbertura = sorteia(ABERTURA)(nome?.split(' ')[0] || '');
   await meta.texto(tel, msgAbertura);
 
   // Passo 2 — áudio A1
-  await delay(5, 10);
+  await delay(6, 12);
   const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
   const disponiveis = A1.filter((a) => !usados.includes(a));
   const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
   await meta.audio(tel, audioEscolhido);
   await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
 
-  // Passo 3 — depoimentos (textos ou imagens)
-  await delay(5, 10);
+  // Passo 3 — depoimentos (espera o cliente ouvir o áudio)
+  await delay(30, 45);
   for (const dep of DEPOIMENTOS) {
-    await delay(3, 6);
+    await delay(6, 12);
     if (dep.tipo === 'texto') {
       await meta.texto(tel, dep.conteudo);
     } else if (dep.tipo === 'imagem') {
@@ -122,7 +123,7 @@ async function iniciarFluxo(cliente, nome) {
   }
 
   // Passo 4 — pergunta de dor
-  await delay(8, 15);
+  await delay(15, 25);
   await meta.texto(tel, sorteia(PERGUNTA_DOR));
   await db.upsertCliente(tel, { passo_atual: 5 });
 
@@ -137,7 +138,7 @@ async function processarRespostaCliente(cliente, texto) {
   const t = texto.toLowerCase();
 
   // Atalhos por palavras-chave simples (sem IA)
-  if (/quanto|preço|valor|caro|link|comprar|quero|pagar/.test(t)) {
+  if (/quanto custa|quanto é|qual o valor|qual o preço|preço|manda o link|me manda o link|como compro|como pago/.test(t)) {
     await enviarLink(cliente, 'GERAL');
     return;
   }
@@ -153,16 +154,27 @@ async function processarRespostaCliente(cliente, texto) {
   }
 
   // Passo 6 — acolhimento fixo (sem IA)
-  await delay(5, 10);
-  await meta.texto(tel, 'entendo você, isso pesa mesmo… 🥺');
   await db.upsertCliente(tel, { dor: 'GERAL', passo_atual: 6 });
+  await delay(10, 20);
+  await meta.texto(tel, 'entendo você, isso pesa mesmo… 🥺');
 
   // Passo 7 — áudio A2 GERAL
-  await delay(3, 6);
+  await delay(8, 14);
   await meta.audio(tel, A2.GERAL);
-  await db.upsertCliente(tel, { audio_a2_usado: A2.GERAL });
+  await db.upsertCliente(tel, { audio_a2_usado: A2.GERAL, passo_atual: 7 });
+
+  // Passo 7b — áudio A3 (vantagens + app) e amostra do guia
+  if (meta.existeAudio(A3)) {
+    await delay(25, 35);
+    await meta.audio(tel, A3);
+  }
+  await delay(25, 40);
+  await meta.imagem(tel, 'amostra-guia.jpg', 'olha um pouquinho de como ele é por dentro 👀');
+  await delay(5, 9);
+  await meta.documento(tel, 'Amostra-Destrave-2027.pdf', 'Amostra - Destrave Seu Dinheiro 2027.pdf');
 
   // Passo 8 — link
+  await delay(20, 30);
   await enviarLink(cliente, 'GERAL');
 }
 
@@ -170,11 +182,11 @@ async function processarRespostaCliente(cliente, texto) {
 async function enviarLink(cliente, dor) {
   const tel = cliente.telefone;
   const link = linkDor(dor);
-  await delay(2, 6);
+  await delay(5, 10);
   await meta.texto(tel, sorteia(INTRO_LINK));
-  await delay(1, 2);
+  await delay(3, 5);
   await meta.texto(tel, link);
-  await delay(2, 4);
+  await delay(6, 10);
   await meta.texto(tel, sorteia(POS_LINK));
   await db.upsertCliente(tel, { passo_atual: 8, link_enviado: link, preco_oferecido: dor });
 

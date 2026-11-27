@@ -29,13 +29,26 @@ async function digitando(to) {
   } catch {}
 }
 
+async function presenca(to, tipo, segundos) {
+  try {
+    await _sock.sendPresenceUpdate(tipo, jid(to));
+    await new Promise(r => setTimeout(r, segundos * 1000));
+    await _sock.sendPresenceUpdate('paused', jid(to));
+  } catch {}
+}
+
+function existeAudio(arquivo) {
+  return fs.existsSync(path.join(__dirname, '..', 'midia', 'audios', arquivo));
+}
+
 async function texto(to, msg) {
-  await digitando(to);
+  await presenca(to, 'composing', Math.min(8, Math.max(2, msg.length / 25)));
   return _sock.sendMessage(jid(to), { text: msg, linkPreview: false });
 }
 
 async function audio(to, arquivo) {
   const caminho = path.join(__dirname, '..', 'midia', 'audios', arquivo);
+  await presenca(to, 'recording', 5 + Math.random() * 5);
   return _sock.sendMessage(jid(to), {
     audio: fs.readFileSync(caminho),
     mimetype: 'audio/ogg; codecs=opus',
@@ -67,4 +80,4 @@ async function alertaDono(msg) {
   return texto(dono, `🤖 ALERTA ROBÔ:\n${msg}`);
 }
 
-module.exports = { setSock, digitando, texto, audio, imagem, documento, alertaDono };
+module.exports = { setSock, digitando, existeAudio, texto, audio, imagem, documento, alertaDono };
