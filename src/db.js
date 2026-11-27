@@ -42,6 +42,7 @@ async function init() {
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS desconto_enviado BOOLEAN DEFAULT FALSE;
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS video_enviado BOOLEAN DEFAULT FALSE;
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS lembretes INT DEFAULT 0;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS itens_entregues TEXT DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_clientes_fone ON clientes(fone_chave);
   `);
 }

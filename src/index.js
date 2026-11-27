@@ -56,7 +56,7 @@ app.get('/reset/:tel', async (req, res) => {
   const p = req.params.tel;
   const tel = p.includes('@') ? p : p.replace(/\D/g, '');
   if (!tel) return res.status(400).json({ erro: 'telefone inválido' });
-  await db.upsertCliente(tel, { passo_atual: 0, precisa_humano: false, optout: false, pagou: false, entregue: false, lembretes: 0, desconto_enviado: false, video_enviado: false });
+  await db.upsertCliente(tel, { passo_atual: 0, precisa_humano: false, optout: false, pagou: false, entregue: false, itens_entregues: '', lembretes: 0, desconto_enviado: false, video_enviado: false });
   await db.cancelarAgenda(tel);
   res.json({ ok: true, tel, mensagem: 'passo resetado para 0' });
 });
@@ -76,9 +76,22 @@ app.post('/webhook/cakto', async (req, res) => {
     const tel = String(data?.customer?.phone || '').replace(/\D/g, '');
     const email = data?.customer?.email || '';
     if (!tel) { await whatsapp.alertaDono(`💰 Venda aprovada sem telefone (${email}). Entregar manualmente.`); return; }
-    const itens = JSON.stringify([data?.product, data?.offer, data?.orderBumps, data?.bumps, data?.items]).toLowerCase();
-    const comprouApp = /\bapp\b|aplicativo|web ?app/.test(itens);
-    await fluxo.vendaConfirmada({ telefone: tel, email, pedidoId: String(data?.id || data?.refId || ''), comprouApp });
+    const nomes = [];
+    (function coletar(v, chave) {
+      if (!v) return;
+      if (Array.isArray(v)) return v.forEach((x) => coletar(x, chave));
+      if (typeof v === 'object') return Object.entries(v).forEach(([k, x]) => { if (k !== 'customer') coletar(x, k); });
+      if (typeof v === 'string' && /name|nome|title/i.test(chave || '')) nomes.push(v.toLowerCase());
+    })(data);
+    const itens = [];
+    if (nomes.some((n) => /seu dinheiro/.test(n))) itens.push('guia');
+    if (nomes.some((n) => /app destrave|aplicativo/.test(n))) itens.push('app');
+    if (nomes.some((n) => /planilha/.test(n))) itens.push('planilha');
+    if (nomes.some((n) => /mapa mental/.test(n))) itens.push('mapa');
+    if (nomes.some((n) => /calend[aá]rio lunar/.test(n))) itens.push('lunar');
+    console.log('Webhook Cakto itens:', itens.join(',') || 'nenhum', '| nomes:', nomes.join(' ; ').slice(0, 300));
+    if (!itens.length) itens.push('guia');
+    await fluxo.vendaConfirmada({ telefone: tel, email, pedidoId: String(data?.id || data?.refId || ''), itens });
   } catch (e) {
     console.error('Erro webhook Cakto:', e.message);
   }

@@ -5,8 +5,18 @@ const PRECO = 'R$19,95';
 const UTM = '?utm_source=whatsapp&utm_medium=x1&utm_content=fluxo_v2';
 const LINK = (process.env.LINK_CHECKOUT || 'https://pay.cakto.com.br/yh5xj7c') + UTM;
 const LINK_DESCONTO = (process.env.LINK_DESCONTO || 'https://pay.cakto.com.br/37n96ge') + UTM + '_desconto';
-const APP_TESTE = process.env.APP_TESTE_URL || '';
-const APP_COMPLETO = process.env.APP_COMPLETO_URL || '';
+const SITE = 'https://destrave-app.vercel.app';
+const APP_TESTE = process.env.APP_TESTE_URL || `${SITE}/teste/`;
+const APP_COMPLETO = process.env.APP_COMPLETO_URL || `${SITE}/app/`;
+const ARQ = `${SITE}/e/mskd5z6otp`;
+
+// Entrega de cada item comprado (guia vai como PDF pelo próprio bot)
+const ENTREGA_ITEM = {
+  app: `📱 seu App Destrave 2027 tá aqui ✨ abre no celular e toca em "Adicionar à tela de início" pra ele ficar como um aplicativo:\n${APP_COMPLETO}`,
+  planilha: `📊 sua Planilha de Gastos 2027 + Desafio das 52 Semanas (PDF pra imprimir + Excel que soma sozinho):\n${ARQ}/Planilha-de-Gastos-2027.zip`,
+  mapa: `🧠 seu Mapa Mental da Prosperidade (pôster + mapa pra preencher + 3 papéis de parede):\n${ARQ}/Mapa-Mental-da-Prosperidade.zip`,
+  lunar: `🌙 seu Calendário Lunar da Prosperidade 2027:\n${ARQ}/Calendario-Lunar-da-Prosperidade-2027.pdf`,
+};
 
 // Depois do A1 e dos depoimentos
 const PERGUNTA_INTERESSE = [
@@ -84,5 +94,5 @@ module.exports = {
   PRECO, LINK, LINK_DESCONTO, APP_TESTE, APP_COMPLETO,
   PERGUNTA_INTERESSE, ACOLHIMENTO, LEGENDA_FOTO, NOME_AMOSTRA, TEXTO_AMOSTRA, TEXTO_APP_TESTE,
   PERGUNTA_FECHAMENTO, RESPOSTA_FECHAMENTO, OFERTA, REFORCO, POS_LINK, RESPOSTAS, LEMBRETE,
-  PAGO, ENTREGUE, ENTREGA_APP,
+  PAGO, ENTREGUE, ENTREGA_APP, ENTREGA_ITEM,
 };

@@ -10,17 +10,17 @@ const INICIO = 0, APRESENTANDO = 1, AGUARDA_INTERESSE = 5, AGUARDA_REACAO = 6, O
 
 const A1_ANTIGOS = ['A1-1.ogg', 'A1-2.ogg', 'A1-3.ogg', 'A1-4.ogg', 'A1-5.ogg'];
 
-// Usa a gravação V2 quando ela existir; senão, a atual
-function audioA1() {
-  return meta.existeAudio('V2-A1-ABERTURA.ogg') ? 'V2-A1-ABERTURA.ogg' : sorteia(A1_ANTIGOS);
+// Sorteia entre as versões gravadas (ex.: V2-A1-1, V2-A1-2, V2-A1-3) para o WhatsApp
+// não ver o mesmo arquivo indo pra todo mundo. Sem versão nova, usa a antiga.
+function variante(base, reserva) {
+  const opcoes = [`${base}.ogg`, ...[1, 2, 3].map((i) => `${base}-${i}.ogg`)].filter((a) => meta.existeAudio(a));
+  if (opcoes.length) return sorteia(opcoes);
+  return Array.isArray(reserva) ? sorteia(reserva) : reserva;
 }
-function audioA2(dor) {
-  const v2 = `V2-A2-${dor}.ogg`;
-  return meta.existeAudio(v2) ? v2 : 'A2-GERAL.ogg';
-}
-function audioA3() {
-  return meta.existeAudio('V2-A3-AMOSTRA-APP.ogg') ? 'V2-A3-AMOSTRA-APP.ogg' : 'A3-APP.ogg';
-}
+const audioA1 = () => variante('V2-A1', A1_ANTIGOS);
+const audioA2 = (dor) => variante(`V2-A2-${dor}`, variante('V2-A2-GERAL', 'A2-GERAL.ogg'));
+const audioA3 = () => variante('V2-A3', 'A3-APP.ogg');
+const audioA4 = () => variante('V2-A4', null);
 
 // ─── uma sequência por contato; nova intenção cancela a que está rodando ─────
 const geracao = new Map();
@@ -193,8 +193,9 @@ async function oferta(cliente) {
   await sequencia(tel, async (vivo) => {
     await meta.texto(tel, T.OFERTA(!!T.APP_TESTE));
     if (!vivo()) return;
-    if (meta.existeAudio('V2-A4-PAGAMENTO.ogg')) {
-      await meta.audio(tel, 'V2-A4-PAGAMENTO.ogg');
+    const a4 = audioA4();
+    if (a4) {
+      await meta.audio(tel, a4);
       if (!vivo()) return;
     }
     await meta.texto(tel, T.REFORCO);
@@ -266,31 +267,52 @@ async function lembrete(cliente, dados) {
 }
 
 // ─── pagamento confirmado (webhook da Cakto) ────────────────────────────────
-async function vendaConfirmada({ telefone, email, pedidoId, comprouApp }) {
+// itens: ['guia','app','planilha','mapa','lunar'] — cada um é entregue uma vez só
+async function vendaConfirmada({ telefone, email, pedidoId, itens }) {
   const cliente = await db.buscarPorFone(telefone);
   if (!cliente) {
-    await meta.alertaDono(`💰 Venda confirmada (${telefone}, ${email}), mas não achei essa pessoa no WhatsApp. Entregar manualmente.`);
+    await meta.alertaDono(`💰 Venda confirmada (${telefone}, ${email}: ${itens.join(', ')}), mas não achei essa pessoa no WhatsApp. Entregar manualmente.`);
     return;
   }
-  if (cliente.entregue && cliente.pedido_id === pedidoId) return; // evento repetido
+  const jaTinha = !!cliente.pagou;
   cancelar(cliente.telefone);
   await db.cancelarAgenda(cliente.telefone);
-  await db.upsertCliente(cliente.telefone, { pagou: true, pago_em: new Date(), email, passo_atual: PAGO, pedido_id: pedidoId, comprou_app: !!comprouApp });
-  await entregar(await db.getCliente(cliente.telefone));
-  await db.agendarAcao(cliente.telefone, 'pedir_depo', {}, 3 * 24 * 60 * 60 * 1000);
+  await db.upsertCliente(cliente.telefone, { pagou: true, pago_em: cliente.pago_em || new Date(), email, passo_atual: PAGO, pedido_id: pedidoId });
+  await entregarItens(await db.getCliente(cliente.telefone), itens);
+  if (!jaTinha) await db.agendarAcao(cliente.telefone, 'pedir_depo', {}, 3 * 24 * 60 * 60 * 1000);
 }
 
-async function entregar(cliente) {
+async function entregarItens(cliente, itens) {
   const tel = cliente.telefone;
+  const feitos = new Set((cliente.itens_entregues || '').split(',').filter(Boolean));
+  const pendentes = itens.filter((i) => !feitos.has(i));
+  if (!pendentes.length) return; // aviso repetido da Cakto
   try {
-    await meta.texto(tel, T.PAGO);
-    await meta.documento(tel, 'Destrave-Seu-Dinheiro-2027.pdf', 'Destrave Seu Dinheiro em 2027.pdf');
-    await db.upsertCliente(tel, { entregue: true });
-    await meta.texto(tel, T.ENTREGUE);
-    if (cliente.comprou_app && T.APP_COMPLETO) await meta.texto(tel, T.ENTREGA_APP(T.APP_COMPLETO));
+    if (pendentes.includes('guia')) {
+      await meta.texto(tel, T.PAGO);
+      await meta.documento(tel, 'Destrave-Seu-Dinheiro-2027.pdf', 'Destrave Seu Dinheiro em 2027.pdf');
+      feitos.add('guia');
+      await db.upsertCliente(tel, { entregue: true, itens_entregues: [...feitos].join(',') });
+      await meta.texto(tel, T.ENTREGUE);
+    } else {
+      await meta.texto(tel, 'pagamento confirmado 💛 já te mando aqui');
+    }
+    for (const item of pendentes.filter((i) => i !== 'guia')) {
+      if (!T.ENTREGA_ITEM[item]) continue;
+      await meta.texto(tel, T.ENTREGA_ITEM[item]);
+      feitos.add(item);
+      await db.upsertCliente(tel, { itens_entregues: [...feitos].join(','), ...(item === 'app' ? { comprou_app: true } : {}) });
+    }
   } catch (e) {
-    await meta.alertaDono(`⚠️ Falha ao entregar o PDF para ${tel}: ${e.message}. Entregar manualmente.`);
+    await meta.alertaDono(`⚠️ Falha ao entregar (${pendentes.join(', ')}) para ${tel}: ${e.message}. Entregar manualmente.`);
   }
+}
+
+// Reenvio quando o cliente diz que não chegou
+async function entregar(cliente) {
+  await db.upsertCliente(cliente.telefone, { itens_entregues: '' });
+  const itens = ['guia', ...(cliente.itens_entregues || '').split(',').filter((i) => i && i !== 'guia')];
+  await entregarItens(await db.getCliente(cliente.telefone), itens);
 }
 
 async function posPago(cliente, texto) {
