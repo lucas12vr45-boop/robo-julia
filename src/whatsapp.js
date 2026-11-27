@@ -75,8 +75,8 @@ async function audio(to, arquivo, faixa = [8, 10]) {
     ptt: true,
     seconds: Math.round(duracao),
   });
-  // Espera o cliente ouvir; a próxima mensagem já tem uns 5s de "digitando"
-  await new Promise(res => setTimeout(res, Math.max(0, duracao - 5) * 1000));
+  // Próxima mensagem chega faltando ~15s pro áudio acabar (ela já tem ~5s de "digitando")
+  await new Promise(res => setTimeout(res, Math.max(0, duracao - 20) * 1000));
   return r;
 }
 
