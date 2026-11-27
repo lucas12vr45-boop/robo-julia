@@ -1,266 +1,309 @@
 'use strict';
 const meta = require('./whatsapp');
-const ia = require('./ia');
 const db = require('./db');
 const janela = require('./janela');
-const { DEPOIMENTOS, PERGUNTA_DOR, LEMBRETE_2H, LEMBRETE_20H,
-        INTRO_LINK, POS_LINK, NAO_PAGOU_40MIN, DESCONTO, POS_VENDA,
-        PEDE_DEPO, PEDE_AUTORIZACAO, BANCO, linkDor, sorteia } = require('./textos');
+const { DEPOIMENTOS, PEDE_DEPO, PEDE_AUTORIZACAO, sorteia } = require('./textos');
+const T = require('./textos-v2');
 
-const A1 = ['A1-1.ogg', 'A1-2.ogg', 'A1-3.ogg', 'A1-4.ogg', 'A1-5.ogg'];
-const A2 = {
-  DIVIDA:     'A2-DIVIDA.ogg',
-  NAOSOBRA:   'A2-NAOSOBRA.ogg',
-  IMPREVISTO: 'A2-IMPREVISTO.ogg',
-  FAMILIA:    'A2-FAMILIA.ogg',
-  VONTADE:    'A2-VONTADE.ogg',
-  ANONOVO:    'A2-ANONOVO.ogg',
-  GERAL:      'A2-GERAL.ogg',
+// Etapas (passo_atual)
+const INICIO = 0, APRESENTANDO = 1, AGUARDA_INTERESSE = 5, AGUARDA_REACAO = 6, OFERTA = 7, AGUARDA_PAGAMENTO = 8, PAGO = 10;
+
+const A1_ANTIGOS = ['A1-1.ogg', 'A1-2.ogg', 'A1-3.ogg', 'A1-4.ogg', 'A1-5.ogg'];
+
+// Usa a gravação V2 quando ela existir; senão, a atual
+function audioA1() {
+  return meta.existeAudio('V2-A1-ABERTURA.ogg') ? 'V2-A1-ABERTURA.ogg' : sorteia(A1_ANTIGOS);
+}
+function audioA2(dor) {
+  const v2 = `V2-A2-${dor}.ogg`;
+  return meta.existeAudio(v2) ? v2 : 'A2-GERAL.ogg';
+}
+function audioA3() {
+  return meta.existeAudio('V2-A3-AMOSTRA-APP.ogg') ? 'V2-A3-AMOSTRA-APP.ogg' : 'A3-APP.ogg';
+}
+
+// ─── uma sequência por contato; nova intenção cancela a que está rodando ─────
+const geracao = new Map();
+const ocupado = new Set();
+const respostaAntecipada = new Map();
+
+async function sequencia(tel, fn) {
+  const g = (geracao.get(tel) || 0) + 1;
+  geracao.set(tel, g);
+  ocupado.add(tel);
+  const vivo = () => geracao.get(tel) === g;
+  try { await fn(vivo); } finally { if (vivo()) ocupado.delete(tel); }
+}
+function cancelar(tel) {
+  geracao.set(tel, (geracao.get(tel) || 0) + 1);
+  ocupado.delete(tel);
+}
+
+// ─── intenções ───────────────────────────────────────────────────────────────
+const tem = (t, re) => re.test(t);
+const RE = {
+  pare: /^(pare|para|parar|sair|stop)\b|para de (me )?mandar|n[aã]o quero mais (receber|mensage)|me tira (da lista|daqui)|remove (meu n[uú]mero|da lista)/,
+  humano: /\b(rob[oô]|bot|humano|atendente)\b|autom[aá]tic|pessoa de verdade/,
+  link: /quanto custa|quanto [eé]\b|qual (o )?valor|qual (o )?pre[cç]o|pre[cç]o|manda o link|me manda o link|\blink\b|como compr|quero comprar|quero o guia|quero o pdf|onde compr/,
+  jaPaguei: /j[aá] paguei|\bpaguei\b|fiz o pix|efetuei|comprei|j[aá] comprei/,
+  reembolso: /reembolso|devolu[cç]|estorno|cancelar a compra/,
+  confiavel: /golpe|fraude|fake|confi[aá]vel|[eé] seguro|seguran[cç]a|verdade isso/,
+  pagar: /n[aã]o sei pagar|como pag|n[aã]o consigo pagar|n[aã]o entendi o pix|pix|cart[aã]o|boleto|v[ií]deo/,
+  recebo: /como (eu )?receb|como chega|onde chega|vou receber/,
+  caro: /\bcaro\b|desconto|mais barato|t[aá] puxado|n[aã]o tenho dinheiro|sem dinheiro/,
+  funciona: /funciona mesmo|vou ganhar|ganhar dinheiro|d[aá] resultado/,
+  religiao: /religi|igreja|evang[eé]lic|cat[oó]lic|esp[ií]rit/,
+  fisico: /f[ií]sico|impresso|livro de papel/,
+  tempo: /quanto tempo|demora|minutos por dia|tempo por dia/,
+  pensar: /vou pensar|depois eu|mais tarde|outro dia/,
 };
-const A3 = 'A3-APP.ogg';
 
-// ─── RECEBE MENSAGEM DO CLIENTE ───────────────────────────────────────────────
-async function receberMensagem(tel, nome, texto, tipoMidia, mediaId, ctwaClid, msgKey) {
-  // Modo teste: só responde ao número do dono
+function classificarDor(t) {
+  if (/d[ií]vida|devendo|atrasad|nome sujo|serasa|cart[aã]o|empr[eé]stimo|juros|boleto/.test(t)) return 'DIVIDA';
+  if (/imprevisto|emerg[eê]ncia|reserva|quebr|rem[eé]dio|doen|desempreg|demitid/.test(t)) return 'IMPREVISTO';
+  if (/fam[ií]lia|filh|m[aã]e|\bpai\b|marido|esposa|ajudar/.test(t)) return 'FAMILIA';
+  if (/sobra|some|acaba|guardar|economiz|sal[aá]rio|gast|controle|organiz|entra e sai/.test(t)) return 'NAOSOBRA';
+  if (/sonho|carro|viagem|casa|im[oó]vel|realizar|conquist|\bmeta\b/.test(t)) return 'VONTADE';
+  if (/2027|ano novo|virada|pr[oó]ximo ano|ano que vem/.test(t)) return 'ANONOVO';
+  return 'GERAL';
+}
+
+// ─── RECEBE MENSAGEM ────────────────────────────────────────────────────────
+async function receberMensagem(tel, nome, texto, tipoMidia, _buf, ctwaClid, msgKey, telefoneReal) {
   if (process.env.MODO_TESTE === '1') {
-    const permitidos = (process.env.NUMEROS_TESTE || '').split(',').map(s => s.trim());
-    if (!permitidos.includes(tel)) return;
+    const permitidos = (process.env.NUMEROS_TESTE || '').split(',').map((s) => s.trim());
+    if (!permitidos.some((p) => tel.includes(p) || (telefoneReal || '').includes(p))) return;
   }
 
   let cliente = await db.getCliente(tel);
-
-  // Se tiver mídia de áudio, transcreve
-  let textoFinal = texto;
-  if (tipoMidia === 'audio' && mediaId) {
-    try {
-      const buf = await baixarMidia(mediaId);
-      textoFinal = await ia.transcrever(buf);
-    } catch {}
-  }
-
-  // Cancelar agendas anteriores (cliente voltou a falar)
   await db.cancelarAgenda(tel);
-
-  // Atualizar janela
-  const veio = !!(ctwaClid || cliente?.veio_do_anuncio);
-  const janelaAte = janela.calcJanela(veio);
   await db.upsertCliente(tel, {
     nome: nome || cliente?.nome || '',
     ultima_msg_em: new Date(),
-    janela_ate: janelaAte,
-    veio_do_anuncio: veio,
-    ctwa_clid: ctwaClid || cliente?.ctwa_clid || null,
+    janela_ate: janela.calcJanela(!!(ctwaClid || cliente?.veio_do_anuncio)),
+    veio_do_anuncio: !!(ctwaClid || cliente?.veio_do_anuncio),
+    ...(telefoneReal ? { fone_chave: db.chaveFone(telefoneReal) } : {}),
+    ...(!cliente && !telefoneReal && !tel.includes('@') ? { fone_chave: db.chaveFone(tel) } : {}),
   });
-
   cliente = await db.getCliente(tel);
 
-  // Se precisa de humano, avisar e parar
+  if (cliente.optout) return;
   if (cliente.precisa_humano) {
-    await meta.alertaDono(`${tel} (${nome}) mandou nova mensagem e está aguardando humano:\n"${textoFinal}"`);
+    await meta.alertaDono(`${tel} (${nome}) mandou mensagem e está aguardando humano:\n"${texto}"`);
     return;
   }
+  if (cliente.pagou) { await posPago(cliente, texto); return; }
 
-  // Se já pagou: pode estar pedindo depoimento ou follow-up
-  if (cliente.pagou) {
-    await processarPosPago(cliente, textoFinal);
-    return;
+  const t = (texto || '').toLowerCase();
+  const passo = cliente.passo_atual || INICIO;
+  const ehMidia = texto === '[mídia]' || tipoMidia === 'audio';
+
+  // Intenções fortes valem em qualquer etapa (inclusive na 1ª mensagem)
+  if (!ehMidia) {
+    if (tem(t, RE.pare)) { cancelar(tel); await db.upsertCliente(tel, { optout: true }); await meta.texto(tel, T.RESPOSTAS.pare); return; }
+    if (tem(t, RE.humano)) { cancelar(tel); await humano(cliente, texto); return; }
+    if (tem(t, RE.jaPaguei)) { cancelar(tel); await jaPaguei(cliente); return; }
+    if (tem(t, RE.reembolso)) { cancelar(tel); await meta.texto(tel, T.RESPOSTAS.reembolso); return; }
+    if (tem(t, RE.link) && passo !== AGUARDA_PAGAMENTO) { cancelar(tel); await oferta(cliente); return; }
+    if (tem(t, RE.confiavel)) { await meta.texto(tel, T.RESPOSTAS.confiavel); return; }
   }
 
-  // Fluxo principal
-  const passo = cliente.passo_atual || 0;
-  const ehMidia = textoFinal === '[mídia]';
-
-  if (passo === 0) {
+  if (passo === INICIO) {
     if (msgKey) await meta.curtir(tel, msgKey);
-    await iniciarFluxo(cliente, nome);
-  } else if (passo === 4 || passo === 5) {
-    if (ehMidia) {
-      await meta.texto(tel, 'pode me contar por texto mesmo? assim consigo te ajudar melhor 😊');
+    await apresentar(cliente);
+    return;
+  }
+  if (ocupado.has(tel)) {
+    // Respondeu enquanto o bot ainda manda a apresentação: guarda e usa depois
+    if (passo === APRESENTANDO && !ehMidia) respostaAntecipada.set(tel, texto);
+    return;
+  }
+  if (passo === AGUARDA_INTERESSE || passo === APRESENTANDO) {
+    if (ehMidia) { await meta.texto(tel, 'pode me contar por escrito? assim consigo te ajudar melhor 😊'); return; }
+    await apresentarAmostra(cliente, texto);
+    return;
+  }
+  if (passo === OFERTA) { await oferta(cliente); return; } // envio interrompido (ex.: reinício)
+  if (passo === AGUARDA_REACAO) {
+    await meta.texto(tel, sorteia(T.RESPOSTA_FECHAMENTO));
+    await oferta(cliente);
+    return;
+  }
+  if (passo === AGUARDA_PAGAMENTO && !ehMidia) await duvidaPosLink(cliente, t);
+}
+
+// ─── 1. Curtida → A1 → depoimentos → pergunta de interesse ───────────────────
+async function apresentar(cliente) {
+  const tel = cliente.telefone;
+  await db.upsertCliente(tel, { passo_atual: APRESENTANDO });
+  await sequencia(tel, async (vivo) => {
+    const a1 = audioA1();
+    await meta.audio(tel, a1, [10, 12]);
+    await db.upsertCliente(tel, { audio_a1_usado: a1 });
+    for (const dep of DEPOIMENTOS) {
+      if (!vivo()) return;
+      if (dep.tipo === 'imagem') await meta.imagem(tel, dep.arquivo, dep.legenda || '');
+      else await meta.texto(tel, dep.conteudo);
+    }
+    if (!vivo()) return;
+    const antecipada = respostaAntecipada.get(tel);
+    respostaAntecipada.delete(tel);
+    if (antecipada) {
+      ocupado.delete(tel);
+      await apresentarAmostra(await db.getCliente(tel), antecipada);
       return;
     }
-    await processarRespostaCliente(cliente, textoFinal);
-  } else if (passo === 8) {
-    if (ehMidia) return; // ignora mídia no pós-link
-    await processarPosLink(cliente, textoFinal);
-  }
+    await meta.texto(tel, sorteia(T.PERGUNTA_INTERESSE));
+    await db.upsertCliente(tel, { passo_atual: AGUARDA_INTERESSE });
+    await agendarLembretes(tel, AGUARDA_INTERESSE);
+  });
 }
 
-// ─── PASSO 0–3: INÍCIO DO FLUXO ──────────────────────────────────────────────
-async function iniciarFluxo(cliente, nome) {
+// ─── 2. Acolhimento → A2 da dor → A3 → amostra + app → pergunta ──────────────
+async function apresentarAmostra(cliente, resposta) {
   const tel = cliente.telefone;
-  await db.upsertCliente(tel, { passo_atual: 1 });
+  const dor = classificarDor((resposta || '').toLowerCase());
+  await db.upsertCliente(tel, { dor, passo_atual: OFERTA });
+  await sequencia(tel, async (vivo) => {
+    await meta.texto(tel, sorteia(T.ACOLHIMENTO[dor]));
+    if (!vivo()) return;
+    const a2 = audioA2(dor);
+    await meta.audio(tel, a2);
+    await db.upsertCliente(tel, { audio_a2_usado: a2 });
+    if (!vivo()) return;
+    await meta.audio(tel, audioA3());
+    if (!vivo()) return;
+    await meta.imagem(tel, 'amostra-guia.jpg', T.LEGENDA_FOTO);
+    if (!vivo()) return;
+    await meta.documento(tel, 'Amostra-Destrave-2027.pdf', T.NOME_AMOSTRA);
+    await meta.texto(tel, T.TEXTO_AMOSTRA);
+    if (!vivo()) return;
+    if (T.APP_TESTE) await meta.texto(tel, T.TEXTO_APP_TESTE(T.APP_TESTE));
+    if (!vivo()) return;
+    await meta.texto(tel, sorteia(T.PERGUNTA_FECHAMENTO));
+    await db.upsertCliente(tel, { passo_atual: AGUARDA_REACAO });
+    await agendarLembretes(tel, AGUARDA_REACAO);
+  });
+}
 
-  // Passo 1 — áudio A1 (sem texto de abertura)
-  const usados = cliente.audio_a1_usado ? [cliente.audio_a1_usado] : [];
-  const disponiveis = A1.filter((a) => !usados.includes(a));
-  const audioEscolhido = sorteia(disponiveis.length ? disponiveis : A1);
-  await meta.audio(tel, audioEscolhido, [10, 12]);
-  await db.upsertCliente(tel, { audio_a1_usado: audioEscolhido });
-
-  // Passo 3 — depoimentos (espera o cliente ouvir o áudio)
-  for (const dep of DEPOIMENTOS) {
-    if (dep.tipo === 'texto') {
-      await meta.texto(tel, dep.conteudo);
-    } else if (dep.tipo === 'imagem') {
-      await meta.imagem(tel, dep.arquivo, dep.legenda || '');
+// ─── 3. Oferta → (A4) → garantia → link ──────────────────────────────────────
+async function oferta(cliente) {
+  const tel = cliente.telefone;
+  await db.upsertCliente(tel, { passo_atual: OFERTA });
+  await sequencia(tel, async (vivo) => {
+    await meta.texto(tel, T.OFERTA(!!T.APP_TESTE));
+    if (!vivo()) return;
+    if (meta.existeAudio('V2-A4-PAGAMENTO.ogg')) {
+      await meta.audio(tel, 'V2-A4-PAGAMENTO.ogg');
+      if (!vivo()) return;
     }
-  }
-
-  // Passo 4 — pergunta de dor
-  await meta.texto(tel, sorteia(PERGUNTA_DOR));
-  await db.upsertCliente(tel, { passo_atual: 5 });
-
-  // Passo 5 — agendar lembretes se não responder
-  await db.agendarAcao(tel, 'lembrete1', {}, 2 * 60 * 60 * 1000);
-  await db.agendarAcao(tel, 'lembrete2', {}, 20 * 60 * 60 * 1000);
+    await meta.texto(tel, T.REFORCO);
+    await meta.texto(tel, T.LINK);
+    await meta.texto(tel, T.POS_LINK);
+    await db.upsertCliente(tel, { passo_atual: AGUARDA_PAGAMENTO, link_enviado: T.LINK, preco_oferecido: T.PRECO });
+    await agendarLembretes(tel, AGUARDA_PAGAMENTO);
+  });
 }
 
-// ─── PASSO 6–8: RESPOSTA DO CLIENTE ──────────────────────────────────────────
-async function processarRespostaCliente(cliente, texto) {
+// ─── 4. Dúvidas depois do link ──────────────────────────────────────────────
+async function duvidaPosLink(cliente, t) {
   const tel = cliente.telefone;
-  const t = texto.toLowerCase();
-
-  // Atalhos por palavras-chave simples (sem IA)
-  if (/quanto custa|quanto é|qual o valor|qual o preço|preço|manda o link|me manda o link|como compro|como pago/.test(t)) {
-    await enviarLink(cliente, 'GERAL');
+  const R = T.RESPOSTAS;
+  if (tem(t, RE.caro)) {
+    if (cliente.desconto_enviado) { await meta.texto(tel, R.pensar); return; }
+    await meta.texto(tel, R.caro);
+    await meta.texto(tel, T.LINK_DESCONTO);
+    await db.upsertCliente(tel, { desconto_enviado: true, link_enviado: T.LINK_DESCONTO, preco_oferecido: 'R$15' });
     return;
   }
-  if (/paguei|já paguei|efetuei|confirmei/.test(t)) {
-    await verificarPagamento(cliente);
-    return;
-  }
-  if (/robô|robo|bot|automático|automatico|humano|atendente/.test(t)) {
-    await meta.texto(tel, BANCO.robo);
-    await meta.alertaDono(`${tel} perguntou se é robô/pediu humano.`);
-    await db.upsertCliente(tel, { precisa_humano: true });
-    return;
-  }
-
-  // Passo 6 — acolhimento fixo (sem IA)
-  await db.upsertCliente(tel, { dor: 'GERAL', passo_atual: 6 });
-  await meta.texto(tel, 'entendo você, isso pesa mesmo… 🥺');
-
-  // Passo 7 — áudio A2 GERAL
-  await meta.audio(tel, A2.GERAL);
-  await db.upsertCliente(tel, { audio_a2_usado: A2.GERAL, passo_atual: 7 });
-
-  // Passo 7b — áudio A3 (vantagens + app) e amostra do guia
-  if (meta.existeAudio(A3)) {
-    await meta.audio(tel, A3);
-  }
-  await meta.imagem(tel, 'amostra-guia.jpg', 'olha um pouquinho de como ele é por dentro 👀');
-  await meta.documento(tel, 'Amostra-Destrave-2027.pdf', 'Amostra - Destrave Seu Dinheiro 2027.pdf');
-
-  // Passo 8 — link
-  await enviarLink(cliente, 'GERAL');
+  if (tem(t, RE.pagar)) { await enviarVideoOuTexto(cliente); return; }
+  if (tem(t, RE.recebo)) { await meta.texto(tel, R.recebo); return; }
+  if (tem(t, RE.funciona)) { await meta.texto(tel, R.funciona); return; }
+  if (tem(t, RE.religiao)) { await meta.texto(tel, R.religiao); return; }
+  if (tem(t, RE.fisico)) { await meta.texto(tel, R.fisico); return; }
+  if (tem(t, RE.tempo)) { await meta.texto(tel, R.tempo); return; }
+  if (tem(t, RE.pensar)) { await meta.texto(tel, R.pensar); return; }
+  if (/^(sim|quero|manda|pode|ok|blz|beleza)\b/.test(t)) { await enviarVideoOuTexto(cliente); return; }
+  await meta.texto(tel, R.outra);
+  await meta.texto(tel, cliente.link_enviado || T.LINK);
 }
 
-// ─── ENVIAR LINK ──────────────────────────────────────────────────────────────
-async function enviarLink(cliente, dor) {
+async function enviarVideoOuTexto(cliente) {
   const tel = cliente.telefone;
-  const link = linkDor(dor);
-  await meta.texto(tel, sorteia(INTRO_LINK));
-  await meta.texto(tel, link);
-  await meta.texto(tel, sorteia(POS_LINK));
-  await db.upsertCliente(tel, { passo_atual: 8, link_enviado: link, preco_oferecido: dor });
-
-  // Agenda: 40 min sem pagar → perguntar
-  await db.agendarAcao(tel, 'nao_pagou_40min', {}, 40 * 60 * 1000);
-}
-
-// ─── PÓS-LINK: OBJEÇÕES / PERGUNTAS ─────────────────────────────────────────
-async function processarPosLink(cliente, texto) {
-  const tel = cliente.telefone;
-  const { intencao } = await ia.classificar(texto);
-
-  if (intencao === 'caro') {
-    await meta.texto(tel, DESCONTO[0]);
-    await meta.texto(tel, DESCONTO[1]);
-    return;
-  }
-  if (intencao === 'ja_pagou') {
-    await verificarPagamento(cliente);
-    return;
-  }
-  if (['robo', 'humano'].includes(intencao)) {
-    await meta.texto(tel, await ia.reescreverBanco('robo', BANCO.robo));
-    await meta.alertaDono(`${tel} pediu humano.`);
-    await db.upsertCliente(tel, { precisa_humano: true });
-    return;
-  }
-
-  // Banco de respostas por palavra-chave (sem IA)
-  const t = texto.toLowerCase();
-  if (/golpe|fraude|fake|falso|mentira/.test(t)) {
-    await meta.texto(tel, BANCO.golpe);
-  } else if (/pensar|depois|amanhã|semana/.test(t)) {
-    await meta.texto(tel, BANCO.pensar);
-  } else if (/tempo|minuto|hora|quando|demorar/.test(t)) {
-    await meta.texto(tel, BANCO.tempo);
+  if (meta.existeVideo('V2-COMO-COMPRAR.mp4') && !cliente.video_enviado) {
+    await meta.texto(tel, T.RESPOSTAS.videoPagar);
+    await meta.video(tel, 'V2-COMO-COMPRAR.mp4');
+    await db.upsertCliente(tel, { video_enviado: true });
   } else {
-    // Qualquer outra coisa: reenvia o link sem inventar resposta
-    await meta.texto(tel, 'qualquer dúvida me fala, tô aqui 😊 o link ainda tá válido 👇');
-    await meta.texto(tel, cliente.link_enviado || linkDor('GERAL'));
+    await meta.texto(tel, T.RESPOSTAS.pagar);
   }
 }
 
-// ─── VERIFICAR PAGAMENTO ─────────────────────────────────────────────────────
-async function verificarPagamento(cliente) {
-  const tel = cliente.telefone;
-  if (cliente.pagou) {
-    await entregarPDF(cliente);
-  } else {
-    await meta.texto(tel, BANCO.ja_paguei);
-    await meta.alertaDono(`${tel} disse que pagou mas não está registrado. Verificar na Cakto.`);
-    await db.upsertCliente(tel, { precisa_humano: true });
-  }
+async function humano(cliente, texto) {
+  await meta.texto(cliente.telefone, T.RESPOSTAS.robo);
+  await meta.alertaDono(`${cliente.telefone} (${cliente.nome || ''}) pediu atendimento humano:\n"${texto}"`);
+  await db.upsertCliente(cliente.telefone, { precisa_humano: true });
 }
 
-// ─── ENTREGA DO PDF ──────────────────────────────────────────────────────────
-async function entregarPDF(cliente) {
-  const tel = cliente.telefone;
-  await meta.texto(tel, sorteia(POS_VENDA));
-  await meta.documento(tel, 'Destrave-Seu-Dinheiro-2027.pdf', 'Destrave Seu Dinheiro em 2027.pdf');
+async function jaPaguei(cliente) {
+  if (cliente.pagou) { await entregar(cliente); return; }
+  await meta.texto(cliente.telefone, T.RESPOSTAS.jaPaguei);
+  await meta.alertaDono(`${cliente.telefone} (${cliente.nome || ''}) disse que pagou, mas a Cakto ainda não confirmou. Conferir.`);
 }
 
-// ─── WEBHOOK CAKTO: VENDA CONFIRMADA ─────────────────────────────────────────
-async function vendaConfirmada(telefone, email) {
-  let cliente = await db.getCliente(telefone);
+// ─── lembretes: no máximo 2 por pessoa ──────────────────────────────────────
+async function agendarLembretes(tel, passo) {
+  await db.agendarAcao(tel, 'lembrete', { passo }, 2 * 60 * 60 * 1000);
+  await db.agendarAcao(tel, 'lembrete', { passo, ultimo: true }, 22 * 60 * 60 * 1000);
+}
+async function lembrete(cliente, dados) {
+  if (cliente.pagou || cliente.optout || cliente.precisa_humano) return;
+  if ((cliente.lembretes || 0) >= 2 || cliente.passo_atual !== dados.passo) return;
+  const msg = dados.ultimo ? T.LEMBRETE.ultimo : T.LEMBRETE[dados.passo];
+  if (!msg) return;
+  await meta.texto(cliente.telefone, msg);
+  await db.upsertCliente(cliente.telefone, { lembretes: (cliente.lembretes || 0) + 1 });
+}
+
+// ─── pagamento confirmado (webhook da Cakto) ────────────────────────────────
+async function vendaConfirmada({ telefone, email, pedidoId, comprouApp }) {
+  const cliente = await db.buscarPorFone(telefone);
   if (!cliente) {
-    // Cliente não está no banco (comprou direto pelo link, não pelo WhatsApp)
-    await meta.alertaDono(`Venda confirmada para ${telefone} (${email}), mas cliente não está no WhatsApp. Entregar manualmente.`);
+    await meta.alertaDono(`💰 Venda confirmada (${telefone}, ${email}), mas não achei essa pessoa no WhatsApp. Entregar manualmente.`);
     return;
   }
-  await db.cancelarAgenda(telefone);
-  await db.upsertCliente(telefone, { pagou: true, pago_em: new Date(), email, passo_atual: 10 });
-  cliente = await db.getCliente(telefone);
-  await entregarPDF(cliente);
-
-  // Agenda pedido de depoimento em 3 dias
-  await db.agendarAcao(telefone, 'pedir_depo', {}, 3 * 24 * 60 * 60 * 1000);
+  if (cliente.entregue && cliente.pedido_id === pedidoId) return; // evento repetido
+  cancelar(cliente.telefone);
+  await db.cancelarAgenda(cliente.telefone);
+  await db.upsertCliente(cliente.telefone, { pagou: true, pago_em: new Date(), email, passo_atual: PAGO, pedido_id: pedidoId, comprou_app: !!comprouApp });
+  await entregar(await db.getCliente(cliente.telefone));
+  await db.agendarAcao(cliente.telefone, 'pedir_depo', {}, 3 * 24 * 60 * 60 * 1000);
 }
 
-// ─── PÓS-PAGO: DEPOIMENTO ────────────────────────────────────────────────────
-async function processarPosPago(cliente, texto) {
+async function entregar(cliente) {
   const tel = cliente.telefone;
-  if (!cliente.autorizou_depo) {
-    // Verifica se respondeu à pergunta de depoimento
-    const { intencao } = await ia.classificar(texto);
-    if (['conta_dor', 'outra'].includes(intencao) && texto.length > 10) {
-      // Parece positivo — pede autorização
-      await meta.texto(tel, PEDE_AUTORIZACAO);
-    } else if (texto.toLowerCase().includes('sim') || texto.toLowerCase().includes('pode')) {
-      await db.upsertCliente(tel, { autorizou_depo: true });
-      await meta.alertaDono(`⭐ ${tel} (${cliente.nome}) autorizou depoimento:\n"${texto}"`);
-    }
+  try {
+    await meta.texto(tel, T.PAGO);
+    await meta.documento(tel, 'Destrave-Seu-Dinheiro-2027.pdf', 'Destrave Seu Dinheiro em 2027.pdf');
+    await db.upsertCliente(tel, { entregue: true });
+    await meta.texto(tel, T.ENTREGUE);
+    if (cliente.comprou_app && T.APP_COMPLETO) await meta.texto(tel, T.ENTREGA_APP(T.APP_COMPLETO));
+  } catch (e) {
+    await meta.alertaDono(`⚠️ Falha ao entregar o PDF para ${tel}: ${e.message}. Entregar manualmente.`);
   }
 }
 
-// ─── DOWNLOAD DE MÍDIA ───────────────────────────────────────────────────────
-// Com Baileys, o buffer já vem baixado — só repassa
-async function baixarMidia(bufferOuId) {
-  if (Buffer.isBuffer(bufferOuId)) return bufferOuId;
-  throw new Error('mediaId inválido para Baileys');
+async function posPago(cliente, texto) {
+  const t = (texto || '').toLowerCase();
+  if (tem(t, RE.reembolso)) { await meta.texto(cliente.telefone, T.RESPOSTAS.reembolso); return; }
+  if (/n[aã]o (chegou|recebi|abre|abriu)/.test(t)) { await entregar(cliente); return; }
+  if (cliente.autorizou_depo) return;
+  if (/^(sim|pode|claro|autorizo)/.test(t)) {
+    await db.upsertCliente(cliente.telefone, { autorizou_depo: true });
+    await meta.alertaDono(`⭐ ${cliente.telefone} (${cliente.nome}) autorizou usar o comentário como depoimento.`);
+  } else if (t.length > 15) {
+    await meta.texto(cliente.telefone, PEDE_AUTORIZACAO);
+  }
 }
 
-module.exports = { receberMensagem, vendaConfirmada, PEDE_DEPO };
+module.exports = { receberMensagem, vendaConfirmada, lembrete, PEDE_DEPO, classificarDor };

@@ -53,26 +53,32 @@ app.get('/logout', async (_req, res) => {
 });
 
 app.get('/reset/:tel', async (req, res) => {
-  const tel = req.params.tel.replace(/\D/g, '');
+  const p = req.params.tel;
+  const tel = p.includes('@') ? p : p.replace(/\D/g, '');
   if (!tel) return res.status(400).json({ erro: 'telefone inválido' });
-  await db.upsertCliente(tel, { passo_atual: 0, precisa_humano: false });
+  await db.upsertCliente(tel, { passo_atual: 0, precisa_humano: false, optout: false, pagou: false, entregue: false, lembretes: 0, desconto_enviado: false, video_enviado: false });
   await db.cancelarAgenda(tel);
   res.json({ ok: true, tel, mensagem: 'passo resetado para 0' });
 });
 
 app.post('/webhook/cakto', async (req, res) => {
-  const secret = req.headers['x-cakto-secret'] || req.headers['authorization'];
+  const body = req.body || {};
+  const secret = body.secret || req.headers['x-cakto-secret'] || req.headers['authorization'];
   if (process.env.CAKTO_WEBHOOK_SECRET && secret !== process.env.CAKTO_WEBHOOK_SECRET) {
+    console.log('Webhook Cakto recusado: senha diferente');
     return res.sendStatus(401);
   }
   res.sendStatus(200);
   try {
-    const { event, data } = req.body || {};
+    const { event, data } = body;
+    console.log('Webhook Cakto:', event, '| campos:', Object.keys(data || {}).join(','), '| status:', data?.status);
     if (event !== 'purchase_approved') return;
-    const tel = (data?.customer?.phone || '').replace(/\D/g, '');
+    const tel = String(data?.customer?.phone || '').replace(/\D/g, '');
     const email = data?.customer?.email || '';
-    if (!tel) return;
-    await fluxo.vendaConfirmada(tel, email);
+    if (!tel) { await whatsapp.alertaDono(`💰 Venda aprovada sem telefone (${email}). Entregar manualmente.`); return; }
+    const itens = JSON.stringify([data?.product, data?.offer, data?.orderBumps, data?.bumps, data?.items]).toLowerCase();
+    const comprouApp = /\bapp\b|aplicativo|web ?app/.test(itens);
+    await fluxo.vendaConfirmada({ telefone: tel, email, pedidoId: String(data?.id || data?.refId || ''), comprouApp });
   } catch (e) {
     console.error('Erro webhook Cakto:', e.message);
   }
@@ -157,7 +163,9 @@ async function conectar() {
       }
 
       try {
-        await fluxo.receberMensagem(tel, nome, texto, tipoMidia, bufferMidia, null, msg.key);
+        const telefoneReal = msg.key.senderPn || (remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : null);
+        const anuncio = m.extendedTextMessage?.contextInfo?.externalAdReply ? 'anuncio' : null;
+        await fluxo.receberMensagem(tel, nome, texto, tipoMidia, bufferMidia, anuncio, msg.key, telefoneReal);
       } catch (e) {
         console.error('Erro ao processar mensagem:', e.message);
       }

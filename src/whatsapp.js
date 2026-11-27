@@ -100,10 +100,25 @@ async function documento(to, arquivo, nomeExibido) {
   });
 }
 
+function existeVideo(arquivo) {
+  return fs.existsSync(path.join(__dirname, '..', 'midia', 'video', arquivo));
+}
+
+async function video(to, arquivo, legenda = '') {
+  const caminho = path.join(__dirname, '..', 'midia', 'video', arquivo);
+  await presenca(to, 'composing', entre(4, 6));
+  return _sock.sendMessage(jid(to), {
+    video: fs.readFileSync(caminho),
+    mimetype: 'video/mp4',
+    caption: legenda,
+    jpegThumbnail: THUMB_1PX,
+  });
+}
+
 async function alertaDono(msg) {
   const dono = process.env.ALERTA_WHATSAPP_DONO;
   if (!dono) return;
   return texto(dono, `🤖 ALERTA ROBÔ:\n${msg}`);
 }
 
-module.exports = { setSock, digitando, curtir, existeAudio, texto, audio, imagem, documento, alertaDono };
+module.exports = { setSock, digitando, curtir, existeAudio, existeVideo, texto, audio, imagem, documento, video, alertaDono };

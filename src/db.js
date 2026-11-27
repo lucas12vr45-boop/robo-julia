@@ -34,16 +34,45 @@ async function init() {
       feito       BOOLEAN DEFAULT FALSE
     );
     CREATE INDEX IF NOT EXISTS idx_agenda_exec ON agenda(executar_em) WHERE feito = FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS fone_chave TEXT;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS optout BOOLEAN DEFAULT FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS entregue BOOLEAN DEFAULT FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS pedido_id TEXT;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS comprou_app BOOLEAN DEFAULT FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS desconto_enviado BOOLEAN DEFAULT FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS video_enviado BOOLEAN DEFAULT FALSE;
+    ALTER TABLE clientes ADD COLUMN IF NOT EXISTS lembretes INT DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS idx_clientes_fone ON clientes(fone_chave);
   `);
+}
+
+// DDD + últimos 8 dígitos: casa "5524999418887", "24999418887" e "552499418887" (sem o 9)
+function chaveFone(tel) {
+  let d = String(tel || '').split('@')[0].replace(/\D/g, '');
+  if (d.startsWith('55') && d.length >= 12) d = d.slice(2);
+  if (d.length < 10) return null;
+  return d.slice(0, 2) + d.slice(-8);
+}
+
+async function buscarPorFone(tel) {
+  const chave = chaveFone(tel);
+  if (!chave) return null;
+  const r = await pool.query(
+    'SELECT * FROM clientes WHERE fone_chave = $1 OR telefone = $2 ORDER BY ultima_msg_em DESC NULLS LAST LIMIT 1',
+    [chave, String(tel).replace(/\D/g, '')]
+  );
+  return r.rows[0] || null;
 }
 
 async function upsertCliente(tel, campos) {
   const keys = Object.keys(campos);
   if (!keys.length) return;
   const sets = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+  const cols = ['telefone', ...keys].join(', ');
+  const ph = keys.map((_, i) => `$${i + 2}`).join(', ');
   const vals = [tel, ...keys.map((k) => campos[k])];
   await pool.query(
-    `INSERT INTO clientes (telefone) VALUES ($1)
+    `INSERT INTO clientes (${cols}) VALUES ($1, ${ph})
      ON CONFLICT (telefone) DO UPDATE SET ${sets}`,
     vals
   );
@@ -80,4 +109,4 @@ async function marcarFeito(id) {
   await pool.query('UPDATE agenda SET feito = TRUE WHERE id = $1', [id]);
 }
 
-module.exports = { pool, init, upsertCliente, getCliente, agendarAcao, cancelarAgenda, pegarPendentes, marcarFeito };
+module.exports = { pool, init, chaveFone, buscarPorFone, upsertCliente, getCliente, agendarAcao, cancelarAgenda, pegarPendentes, marcarFeito };
