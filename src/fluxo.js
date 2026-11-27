@@ -167,8 +167,10 @@ async function processarRespostaCliente(cliente, texto) {
   if (meta.existeAudio(A3)) {
     await delay(25, 35);
     await meta.audio(tel, A3);
+    await delay(55, 70);
+  } else {
+    await delay(25, 40);
   }
-  await delay(25, 40);
   await meta.imagem(tel, 'amostra-guia.jpg', 'olha um pouquinho de como ele é por dentro 👀');
   await delay(5, 9);
   await meta.documento(tel, 'Amostra-Destrave-2027.pdf', 'Amostra - Destrave Seu Dinheiro 2027.pdf');
